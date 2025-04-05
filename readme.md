@@ -8,6 +8,8 @@ Hosting link here! (TODO)
 
 # Info from the original source code:
 
+Source code can be found here: https://github.com/GNOME/gimp/blob/master/plug-ins/common/qbist.c
+
 Written 1997 Jens Ch. Restemeier <jrestemeier@currantbun.com>
 This program is based on an algorithm / article by
 Jörn Loviscach.
