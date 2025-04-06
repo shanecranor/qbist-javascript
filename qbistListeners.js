@@ -66,7 +66,19 @@ document.querySelectorAll(".preview").forEach((canvas) => {
 
 // button event listeners
 document.getElementById("regenButton").addEventListener("click", () => {
-  Object.assign(mainFormula, createInfo())
+import {
+  mainFormula,
+  generateFormulas,
+  updateAll,
+  formulas,
+  downloadImage,
+} from "./index.js"
+import { createInfo } from "./qbist.js"
+
+// ... other imports or code ...
+
+// Somewhere in the file (e.g., line 69)
+Object.assign(mainFormula, createInfo())
   generateFormulas()
   updateAll()
 })
