@@ -44,8 +44,8 @@ function drawQbist(canvas, info, oversampling = 0) {
 }
 
 // --- Managing the 9-Panel Grid ---
-export let formulas = new Array(9)
-export let mainFormula = createInfo()
+export const formulas = new Array(9)
+export const mainFormula = createInfo()
 
 // Generate variations based on the current main formula.
 export function generateFormulas() {
