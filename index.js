@@ -2,6 +2,10 @@ import { createInfo, modifyInfo } from "/qbist.js"
 import { loadStateFromParam } from "/qbistListeners.js"
 function drawQbist(canvas, info, oversampling = 0) {
   return new Promise((resolve, reject) => {
+    if (typeof Worker === 'undefined') {
+      reject(new Error('Web Workers are not supported in this browser'));
+      return;
+    }
     const ctx = canvas.getContext("2d")
     const width = canvas.width
     const height = canvas.height
@@ -14,7 +18,7 @@ function drawQbist(canvas, info, oversampling = 0) {
       if (command === "progress") {
         const { progress } = e.data
         loadingOverlay.style.display = "flex"
-        loadingBar.style.width = progress + "%"
+        loadingBar.style.width = `${progress}%`
       } else if (command === "rendered") {
         const { imageData } = e.data
         const data = new Uint8ClampedArray(imageData)
@@ -28,6 +32,8 @@ function drawQbist(canvas, info, oversampling = 0) {
 
     // Listen for errors in the worker
     worker.addEventListener("error", (err) => {
+      worker.terminate() // Clean up the worker on error
+      loadingOverlay.style.display = "none"
       reject(err)
     })
 
