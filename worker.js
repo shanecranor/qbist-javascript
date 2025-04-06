@@ -7,14 +7,15 @@ self.addEventListener("message", (e) => {
   try {
     const data = e.data
     if (data.command === "render") {
-      console.log("aaa")
       const { info, width, height, oversampling = 1 } = data
       const { usedTransFlag, usedRegFlag } = optimize(info)
       const buffer = new Uint8ClampedArray(width * height * 4)
 
       for (let y = 0; y < height; y++) {
         const progress = Math.floor((y / height) * 100)
-        self.postMessage({ command: "progress", progress })
+        if (height > 256) {
+          self.postMessage({ command: "progress", progress })
+        }
         for (let x = 0; x < width; x++) {
           const color = qbist(
             info,

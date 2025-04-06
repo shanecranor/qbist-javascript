@@ -22,6 +22,16 @@ function drawQbist(canvas, info, oversampling = 0) {
         resolve() // Resolve the Promise when rendering is complete
       }
     })
+    worker.addEventListener("message", (e) => {
+      const { command, progress } = e.data
+      console.log("Worker message:", command, progress)
+      if (command === "progress") {
+        loadingOverlay.style.display = "flex"
+        loadingBar.style.width = progress + "%"
+      } else if (command === "rendered") {
+        loadingOverlay.style.display = "none"
+      }
+    })
 
     // Listen for errors in the worker
     worker.addEventListener("error", (err) => {
@@ -103,3 +113,7 @@ export async function downloadImage(outputWidth, outputHeight, oversampling) {
   link.click()
   document.body.removeChild(link)
 }
+
+const loadingOverlay = document.getElementById("loadingOverlay")
+const loadingBar = document.getElementById("loadingBar")
+loadingOverlay.style.display = "none"
