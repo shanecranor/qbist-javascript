@@ -17,6 +17,46 @@
     </nav>
     <main>
       <canvas id="mainPattern" width="256" height="256"></canvas>
+      <div>
+        <button onclick="document.getElementById('settingsDialog').showModal()">
+          Export Image
+        </button>
+        <dialog id="settingsDialog">
+          <form method="dialog">
+            <h2>Output Settings</h2>
+            <label for="outputWidth">Width:</label>
+            <input
+              type="number"
+              id="outputWidth"
+              name="outputWidth"
+              value="1920" />
+            <br />
+            <label for="outputHeight">Height:</label>
+            <input
+              type="number"
+              id="outputHeight"
+              name="outputHeight"
+              value="1080" />
+            <br />
+            <label for="oversampling">Oversampling:</label>
+            <input
+              type="number"
+              id="oversampling"
+              name="oversampling"
+              value="2" />
+            <br />
+            <menu>
+              <button id="downloadButton" type="submit">Download</button>
+              <button
+                type="button"
+                id="closeSettings"
+                onclick="document.getElementById('settingsDialog').close()">
+                Cancel
+              </button>
+            </menu>
+          </form>
+        </dialog>
+      </div>
       <div id="grid">
         <canvas class="preview" id="preview4" width="80" height="80"></canvas>
         <canvas class="preview" id="preview1" width="80" height="80"></canvas>

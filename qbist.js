@@ -287,3 +287,32 @@ if (!checkURLState()) {
   generateFormulas()
   updateAll()
 }
+
+function downloadImage(outputWidth, outputHeight, oversampling) {
+  const exportCanvas = document.createElement("canvas")
+  exportCanvas.width = outputWidth
+  exportCanvas.height = outputHeight
+
+  drawQbist(exportCanvas, mainFormula, oversampling)
+
+  const imageDataURL = exportCanvas.toDataURL("image/png")
+
+  // create a temporary download link and trigger the download
+  const link = document.createElement("a")
+  link.href = imageDataURL
+  link.download = "qbist.png"
+  document.body.appendChild(link)
+  link.click()
+  document.body.removeChild(link)
+}
+
+function downloadListener() {
+  const outputWidth = parseInt(document.getElementById("outputWidth").value)
+  const outputHeight = parseInt(document.getElementById("outputHeight").value)
+  const oversampling = parseInt(document.getElementById("oversampling").value)
+  downloadImage(outputWidth, outputHeight, oversampling)
+}
+
+document
+  .getElementById("downloadButton")
+  .addEventListener("click", downloadListener)
