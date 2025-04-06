@@ -66,7 +66,7 @@ export function updateAll() {
   const mainCanvas = document.getElementById("mainPattern")
   drawQbist(mainCanvas, mainFormula, 1)
   for (let i = 0; i < 9; i++) {
-    const canvas = document.getElementById("preview" + i)
+    const canvas = document.getElementById(`preview${i}`)
     drawQbist(canvas, formulas[i], 1)
   }
   const url = new URL(window.location.href)
