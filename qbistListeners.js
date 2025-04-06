@@ -37,7 +37,6 @@ export function loadStateFromParam(stateBase64) {
   try {
     const stateJSON = atob(stateBase64)
     const stateObj = JSON.parse(stateJSON)
-    console.log("Loaded state:", stateObj)
     if (
       stateObj.transformSequence &&
       stateObj.source &&

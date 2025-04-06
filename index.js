@@ -12,24 +12,17 @@ function drawQbist(canvas, info, oversampling = 0) {
     worker.addEventListener("message", (e) => {
       const { command } = e.data
       if (command === "progress") {
-        console.log(`Rendering progress: ${e.data.progress}%`)
+        const { progress } = e.data
+        loadingOverlay.style.display = "flex"
+        loadingBar.style.width = progress + "%"
       } else if (command === "rendered") {
         const { imageData } = e.data
         const data = new Uint8ClampedArray(imageData)
         const imgData = new ImageData(data, width, height)
         ctx.putImageData(imgData, 0, 0)
         worker.terminate() // Clean up the worker
-        resolve() // Resolve the Promise when rendering is complete
-      }
-    })
-    worker.addEventListener("message", (e) => {
-      const { command, progress } = e.data
-      console.log("Worker message:", command, progress)
-      if (command === "progress") {
-        loadingOverlay.style.display = "flex"
-        loadingBar.style.width = progress + "%"
-      } else if (command === "rendered") {
         loadingOverlay.style.display = "none"
+        resolve() // Resolve the Promise when rendering is complete
       }
     })
 
@@ -79,9 +72,7 @@ export function updateAll() {
 function checkURLState() {
   const urlParams = new URLSearchParams(window.location.search)
   if (urlParams.has("state")) {
-    console.log("State found in URL")
     const state = urlParams.get("state")
-    console.log("State:", state)
     loadStateFromParam(state)
     return true
   }
