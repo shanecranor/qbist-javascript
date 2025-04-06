@@ -22,7 +22,7 @@ function randomInt(min, max) {
 
 // --- Formula Generation ---
 // Creates a random transformation formula (similar to ExpInfo in C)
-function createInfo() {
+export function createInfo() {
   const info = {
     transformSequence: [],
     source: [],
@@ -39,7 +39,7 @@ function createInfo() {
 }
 
 // Modify an existing formula by making random changes.
-function modifyInfo(oldInfo) {
+export function modifyInfo(oldInfo) {
   const newInfo = {
     transformSequence: oldInfo.transformSequence.slice(),
     source: oldInfo.source.slice(),
@@ -77,7 +77,7 @@ function modifyInfo(oldInfo) {
 
 // --- Optimization ---
 // Determines which transformations and registers are actually used.
-function optimize(info) {
+export function optimize(info) {
   const usedTransFlag = new Array(MAX_TRANSFORMS).fill(false)
   const usedRegFlag = new Array(NUM_REGISTERS).fill(false)
   for (let i = 0; i < MAX_TRANSFORMS; i++) {
@@ -108,7 +108,7 @@ function optimize(info) {
 
 // --- Core Image Processing (qbist) ---
 // Process one pixel using the qbist algorithm.
-function qbist(
+export function qbist(
   info,
   x,
   y,
@@ -210,99 +210,35 @@ function qbist(
   return [accum[0] / samples, accum[1] / samples, accum[2] / samples]
 }
 
-// Draw the pattern on a given canvas using a specific formula.
-function drawQbist(canvas, info, oversampling = 0) {
-  const ctx = canvas.getContext("2d")
-  const width = canvas.width
-  const height = canvas.height
-  const imageData = ctx.createImageData(width, height)
-  const data = imageData.data
-  const { usedTransFlag, usedRegFlag } = optimize(info)
-  for (let y = 0; y < height; y++) {
-    for (let x = 0; x < width; x++) {
-      const color = qbist(
-        info,
-        x,
-        y,
-        width,
-        height,
-        oversampling,
-        usedTransFlag,
-        usedRegFlag
-      )
-      const r = Math.floor(color[0] * 255)
-      const g = Math.floor(color[1] * 255)
-      const b = Math.floor(color[2] * 255)
-      const idx = (y * width + x) * 4
-      data[idx] = r
-      data[idx + 1] = g
-      data[idx + 2] = b
-      data[idx + 3] = 255
-    }
-  }
-  ctx.putImageData(imageData, 0, 0)
-}
-
-// --- Managing the 9-Panel Grid ---
-let formulas = new Array(9)
-let mainFormula = createInfo()
-
-// Generate variations based on the current main formula.
-function generateFormulas() {
-  formulas[0] = mainFormula
-  for (let i = 1; i < 9; i++) {
-    formulas[i] = modifyInfo(mainFormula)
-  }
-}
-
-// Draw the large main pattern and each preview.
-function updateAll() {
-  const mainCanvas = document.getElementById("mainPattern")
-  drawQbist(mainCanvas, mainFormula, 1)
-  for (let i = 0; i < 9; i++) {
-    const canvas = document.getElementById("preview" + i)
-    drawQbist(canvas, formulas[i], 1)
-  }
-  const url = new URL(window.location.href)
-  url.searchParams.set("state", btoa(JSON.stringify(mainFormula)))
-  window.history.pushState({}, "", url)
-}
-
-// On page load, check if a state is provided in the URL.
-function checkURLState() {
-  const urlParams = new URLSearchParams(window.location.search)
-  if (urlParams.has("state")) {
-    console.log("State found in URL")
-    const state = urlParams.get("state")
-    console.log("State:", state)
-    loadStateFromParam(state)
-    return true
-  }
-  return false
-}
-
-// --- Initialization ---
-// Check if a state is provided in the URL and load it.
-if (!checkURLState()) {
-  generateFormulas()
-  updateAll()
-}
-
-function downloadImage(outputWidth, outputHeight, oversampling) {
-  const exportCanvas = document.createElement("canvas")
-  exportCanvas.width = outputWidth
-  exportCanvas.height = outputHeight
-
-  drawQbist(exportCanvas, mainFormula, oversampling)
-
-  const imageDataURL = exportCanvas.toDataURL("image/png")
-
-  // create a temporary download link and trigger the download
-  const link = document.createElement("a")
-  link.href = imageDataURL
-  link.download = "qbist.png"
-  //TODO: add metadata to the image so that it can be regenerated at another resolution
-  document.body.appendChild(link)
-  link.click()
-  document.body.removeChild(link)
-}
+// // Draw the pattern on a given canvas using a specific formula.
+// function drawQbist(canvas, info, oversampling = 0) {
+//   const ctx = canvas.getContext("2d")
+//   const width = canvas.width
+//   const height = canvas.height
+//   const imageData = ctx.createImageData(width, height)
+//   const data = imageData.data
+//   const { usedTransFlag, usedRegFlag } = optimize(info)
+//   for (let y = 0; y < height; y++) {
+//     for (let x = 0; x < width; x++) {
+//       const color = qbist(
+//         info,
+//         x,
+//         y,
+//         width,
+//         height,
+//         oversampling,
+//         usedTransFlag,
+//         usedRegFlag
+//       )
+//       const r = Math.floor(color[0] * 255)
+//       const g = Math.floor(color[1] * 255)
+//       const b = Math.floor(color[2] * 255)
+//       const idx = (y * width + x) * 4
+//       data[idx] = r
+//       data[idx + 1] = g
+//       data[idx + 2] = b
+//       data[idx + 3] = 255
+//     }
+//   }
+//   ctx.putImageData(imageData, 0, 0)
+// }

@@ -1,5 +1,12 @@
+import {
+  mainFormula,
+  generateFormulas,
+  updateAll,
+  formulas,
+  downloadImage,
+} from "./index.js"
 // Prompt the user for a state code or URL and load it.
-function loadStateFromUserInput() {
+export function loadStateFromUserInput() {
   const input = prompt("Paste your shared pattern URL or state code:")
   if (!input) return
   let stateBase64
@@ -26,7 +33,7 @@ function saveState() {
 }
 
 // load state from a base64 string.
-function loadStateFromParam(stateBase64) {
+export function loadStateFromParam(stateBase64) {
   try {
     const stateJSON = atob(stateBase64)
     const stateObj = JSON.parse(stateJSON)
@@ -37,13 +44,14 @@ function loadStateFromParam(stateBase64) {
       stateObj.control &&
       stateObj.dest
     ) {
-      mainFormula = stateObj
+      Object.assign(mainFormula, stateObj)
       generateFormulas()
       updateAll()
     } else {
       alert("Invalid pattern state")
     }
   } catch (e) {
+    console.error("Error loading state:", e)
     alert("Error loading pattern state")
   }
 }
@@ -51,7 +59,7 @@ function loadStateFromParam(stateBase64) {
 document.querySelectorAll(".preview").forEach((canvas) => {
   canvas.addEventListener("click", () => {
     const index = parseInt(canvas.id.replace("preview", ""))
-    mainFormula = formulas[index]
+    Object.assign(mainFormula, formulas[index])
     generateFormulas()
     updateAll()
   })
@@ -59,7 +67,7 @@ document.querySelectorAll(".preview").forEach((canvas) => {
 
 // button event listeners
 document.getElementById("regenButton").addEventListener("click", () => {
-  mainFormula = createInfo()
+  Object.assign(mainFormula, createInfo())
   generateFormulas()
   updateAll()
 })
