@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>QbistJS</title>
+    <link rel="stylesheet" href="reset.css" />
+    <link rel="stylesheet" href="index.css" />
+  </head>
+  <body>
+    <nav>
+      <h1><a>QbistJS</a></h1>
+      <div class="links">
+        <a>Github</a>
+        <a>About</a>
+        <a>webgl version (coming soon??)</a>
+      </div>
+    </nav>
+    <main>
+      <canvas id="mainPattern" width="256" height="256"></canvas>
+      <div id="grid">
+        <canvas class="preview" id="preview4" width="80" height="80"></canvas>
+        <canvas class="preview" id="preview1" width="80" height="80"></canvas>
+        <canvas class="preview" id="preview2" width="80" height="80"></canvas>
+        <canvas class="preview" id="preview3" width="80" height="80"></canvas>
+        <canvas class="preview" id="preview0" width="80" height="80"></canvas>
+        <canvas class="preview" id="preview5" width="80" height="80"></canvas>
+        <canvas class="preview" id="preview6" width="80" height="80"></canvas>
+        <canvas class="preview" id="preview7" width="80" height="80"></canvas>
+        <canvas class="preview" id="preview8" width="80" height="80"></canvas>
+      </div>
+      <div>
+        <button id="regenButton">New Random Pattern</button>
+        <button id="savePatternButton">Save Pattern</button>
+        <button id="loadPatternButton">Load Pattern</button>
+      </div>
+    </main>
+    <script src="/qbistListeners.js"></script>
+    <script src="/qbist.js"></script>
+  </body>
+</html>

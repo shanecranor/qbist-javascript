@@ -1,0 +1,96 @@
+:root {
+  --background-color: #fff;
+  --text-color: #222;
+  --border-color: #222;
+  --preview-border-color: #ccc;
+  --button-padding: 10px 20px;
+  --button-font-size: 1rem;
+
+  --nav-bg: #ddd;
+  --nav-text: #000;
+  --nav-accent: #000;
+
+  background: var(--background-color);
+  color: var(--text-color);
+  font-family: sans-serif;
+}
+
+/* Dark theme override if the user prefers dark mode */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background-color: #111;
+    --nav-bg: #1f1f1f;
+    --nav-text: #ffffff;
+    --nav-accent: #ffffff;
+
+    --text-color: #ddd;
+    --border-color: #ddd;
+    --preview-border-color: #555;
+  }
+}
+
+body {
+  text-align: center;
+}
+
+#mainPattern {
+  margin: 0 auto 20px;
+  border: 3px solid var(--border-color);
+  display: block;
+}
+
+#grid {
+  display: grid;
+  grid-template-columns: repeat(3, 80px);
+  grid-gap: 10px;
+  justify-content: center;
+  margin-bottom: 20px;
+}
+
+.preview {
+  border: 1px solid var(--preview-border-color);
+  cursor: pointer;
+  &:hover {
+    border-color: var(--border-color);
+    box-shadow: 0 0 20px -10px var(--border-color);
+  }
+}
+
+button {
+  padding: var(--button-padding);
+  font-size: var(--button-font-size);
+  cursor: pointer;
+  background: var(--background-color);
+  color: var(--text-color);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  margin: 5px;
+  &:hover {
+    background: var(--border-color);
+    color: var(--background-color);
+  }
+}
+
+nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background-color: var(--nav-bg);
+  padding: 1rem 2rem;
+  margin-bottom: 30px;
+  h1 {
+    margin: 0;
+    color: var(--nav-accent);
+    font-size: 1.5rem;
+  }
+  .links > a {
+    margin-left: 2rem;
+    color: var(--nav-text);
+    text-decoration: none;
+    font-size: 1rem;
+    transition: color 0.3s ease;
+    &:hover {
+      color: var(--nav-accent);
+    }
+  }
+}
