@@ -301,18 +301,8 @@ function downloadImage(outputWidth, outputHeight, oversampling) {
   const link = document.createElement("a")
   link.href = imageDataURL
   link.download = "qbist.png"
+  //TODO: add metadata to the image so that it can be regenerated at another resolution
   document.body.appendChild(link)
   link.click()
   document.body.removeChild(link)
 }
-
-function downloadListener() {
-  const outputWidth = parseInt(document.getElementById("outputWidth").value)
-  const outputHeight = parseInt(document.getElementById("outputHeight").value)
-  const oversampling = parseInt(document.getElementById("oversampling").value)
-  downloadImage(outputWidth, outputHeight, oversampling)
-}
-
-document
-  .getElementById("downloadButton")
-  .addEventListener("click", downloadListener)

@@ -66,6 +66,14 @@ document.getElementById("regenButton").addEventListener("click", () => {
 document
   .getElementById("savePatternButton")
   .addEventListener("click", saveState)
+
+function downloadListener() {
+  const outputWidth = parseInt(document.getElementById("outputWidth").value)
+  const outputHeight = parseInt(document.getElementById("outputHeight").value)
+  const oversampling = parseInt(document.getElementById("oversampling").value)
+  downloadImage(outputWidth, outputHeight, oversampling)
+}
+
 document
-  .getElementById("loadPatternButton")
-  .addEventListener("click", loadStateFromUserInput)
+  .getElementById("downloadButton")
+  .addEventListener("click", downloadListener)
