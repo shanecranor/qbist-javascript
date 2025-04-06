@@ -5,6 +5,7 @@ import {
   formulas,
   downloadImage,
 } from "./index.js"
+import { createInfo } from "./qbist.js"
 // Prompt the user for a state code or URL and load it.
 export function loadStateFromUserInput() {
   const input = prompt("Paste your shared pattern URL or state code:")
@@ -66,19 +67,10 @@ document.querySelectorAll(".preview").forEach((canvas) => {
 
 // button event listeners
 document.getElementById("regenButton").addEventListener("click", () => {
-import {
-  mainFormula,
-  generateFormulas,
-  updateAll,
-  formulas,
-  downloadImage,
-} from "./index.js"
-import { createInfo } from "./qbist.js"
+  // ... other imports or code ...
 
-// ... other imports or code ...
-
-// Somewhere in the file (e.g., line 69)
-Object.assign(mainFormula, createInfo())
+  // Somewhere in the file (e.g., line 69)
+  Object.assign(mainFormula, createInfo())
   generateFormulas()
   updateAll()
 })
