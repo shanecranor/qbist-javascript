@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Animated Qbist in Worker - Fullscreen</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+        height: 100%;
+        background: #222;
+        overflow: hidden;
+      }
+      canvas {
+        display: block;
+        width: 100vw;
+        height: 100vh;
+      }
+    </style>
+  </head>
+  <body>
+    <canvas id="canvas"></canvas>
+    <script type="module">
+      const urlParams = new URLSearchParams(window.location.search)
+      let state = null
+      if (urlParams.has("state")) {
+        state = urlParams.get("state")
+      }
+      const canvas = document.getElementById("canvas")
+      function resizeCanvas() {
+        canvas.width = window.innerWidth
+        canvas.height = window.innerHeight
+      }
+      resizeCanvas()
+
+      // Transfer control to an OffscreenCanvas.
+      const offscreen = canvas.transferControlToOffscreen()
+
+      // Create and start the worker.
+      const worker = new Worker("workerWebGL.js", { type: "module" })
+
+      worker.postMessage(
+        {
+          type: "init",
+          canvas: offscreen,
+          width: canvas.width,
+          height: canvas.height,
+          b64state: state,
+        },
+        [offscreen]
+      )
+
+      // On resize, update the canvas size and send new dimensions to the worker.
+      window.addEventListener("resize", () => {
+        resizeCanvas()
+        // Update the OffscreenCanvas dimensions.
+        offscreen.width = canvas.width
+        offscreen.height = canvas.height
+        worker.postMessage({
+          type: "resize",
+          width: canvas.width,
+          height: canvas.height,
+        })
+      })
+    </script>
+  </body>
+</html>
