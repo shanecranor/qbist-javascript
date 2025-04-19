@@ -82,7 +82,7 @@ function drawQbist(canvas, info, oversampling = 0) {
         width: canvas.width,
         height: canvas.height,
         info: optimizedInfo,
-        keepAlive: true, // Keep the worker alive for future updates
+        keepAlive: canvas.id !== "exportCanvas", // Only keep alive for non-export canvases
       },
       [offscreen]
     )
