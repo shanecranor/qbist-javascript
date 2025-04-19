@@ -39,11 +39,6 @@ const fragmentShaderSource = `#version 300 es
     const int MAX_TRANSFORMS = 36;
     const int NUM_REGISTERS = 6;
     
-    // Optimized wrap function that matches C/JS behavior without branching
-    vec3 wrap(vec3 v) {
-        return v - floor(v);
-    }
-    
     void main() {
       vec2 pixelCoord = (vUV * vec2(uResolution));
       vec3 accum = vec3(0.0);
