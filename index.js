@@ -53,6 +53,7 @@ function drawQbist(canvas, info, oversampling = 0) {
       if (e.data.command === "rendered") {
         if (!e.data.keepAlive) {
           worker.terminate() // Clean up the worker
+          transferredCanvases.delete(canvas) // Remove canvas from transferred set
         }
         loadingOverlay.style.display = "none"
         resolve() // Resolve the Promise when rendering is complete
@@ -62,12 +63,13 @@ function drawQbist(canvas, info, oversampling = 0) {
     // Listen for errors in the worker
     worker.addEventListener("error", (err) => {
       worker.terminate() // Clean up the worker on error
+      transferredCanvases.delete(canvas) // Remove canvas from transferred set on error
       loadingOverlay.style.display = "none"
       reject(err)
     })
 
-    // Show loading overlay for main canvas only
-    if (canvas.id === "mainPattern") {
+    // Show loading overlay for the exported canvas only
+    if (canvas.id === "exportCanvas") {
       loadingOverlay.style.display = "flex"
       loadingBar.style.width = "100%"
     }
@@ -138,6 +140,7 @@ if (!checkURLState()) {
 
 export async function downloadImage(outputWidth, outputHeight, oversampling) {
   const exportCanvas = document.createElement("canvas")
+  exportCanvas.id = "exportCanvas"
   exportCanvas.width = outputWidth
   exportCanvas.height = outputHeight
 
