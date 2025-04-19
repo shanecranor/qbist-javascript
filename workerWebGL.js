@@ -44,26 +44,22 @@ const fragmentShaderSource = `#version 300 es
     const int NUM_REGISTERS = 6;
     
     void main() {
-      // vUV is already in the correct coordinate space (0,0 at top-left)
       vec2 pixelCoord = vUV * vec2(uResolution);
       vec3 accum = vec3(0.0);
       
       for (int oy = 0; oy < OVERSAMPLING; oy++) {
         for (int ox = 0; ox < OVERSAMPLING; ox++) {
-          // Calculate exact subpixel position
           vec2 subPixelPos = (floor(pixelCoord) * float(OVERSAMPLING) + vec2(float(ox), float(oy))) / (vec2(uResolution) * float(OVERSAMPLING));
           
           vec3 r[NUM_REGISTERS];
           for (int i = 0; i < NUM_REGISTERS; i++) {
             if (uUsedRegFlag[i] == 1) {
-              // Match JavaScript coordinate space exactly
               r[i] = vec3(subPixelPos.x, subPixelPos.y, float(i) / float(NUM_REGISTERS));
             } else {
               r[i] = vec3(0.0);
             }
           }
           
-          // Rest of the shader remains the same...
           for (int i = 0; i < MAX_TRANSFORMS; i++) {
             if (uUsedTransFlag[i] != 1) continue;
             int t = uTransformSequence[i];
@@ -91,8 +87,7 @@ const fragmentShaderSource = `#version 300 es
               r[dr] = vec3(0.5) + 0.5 * sin(20.0 * src * ctrl);
             } else if (t == 7) { // CONDITIONAL
               float sum = ctrl.x + ctrl.y + ctrl.z;
-              float t   = step(1.5, sum);
-              r[dr]     = mix(ctrl, src, t);  
+              r[dr] = (sum > 0.5) ? src : ctrl;  // Fixed to match JavaScript implementation
             } else if (t == 8) { // COMPLEMENT
               r[dr] = vec3(1.0) - src;
             }
