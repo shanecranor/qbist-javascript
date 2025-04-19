@@ -1,4 +1,5 @@
 // worker.js
+import { optimize } from "/qbist.js"
 
 // Global variables and context
 let gl = null
@@ -138,24 +139,21 @@ function createInfo() {
     source: [],
     control: [],
     dest: [],
-    usedTransFlag: [],
-    usedRegFlag: [],
   }
   for (let k = 0; k < 36; k++) {
     info.transformSequence.push(randomInt(0, 9))
     info.source.push(randomInt(0, 6))
     info.control.push(randomInt(0, 6))
     info.dest.push(randomInt(0, 6))
-    info.usedTransFlag.push(true)
-  }
-  for (let k = 0; k < 6; k++) {
-    info.usedRegFlag.push(true)
   }
   return info
 }
 
 function uploadFormula(formula) {
   if (!gl || !program) return
+  // Run optimization before uploading
+  const { usedTransFlag, usedRegFlag } = optimize(formula)
+
   gl.uniform1iv(
     uTransformSequenceLoc,
     new Int32Array(formula.transformSequence)
@@ -165,11 +163,11 @@ function uploadFormula(formula) {
   gl.uniform1iv(uDestLoc, new Int32Array(formula.dest))
   gl.uniform1iv(
     uUsedTransFlagLoc,
-    new Int32Array(formula.usedTransFlag.map((flag) => (flag ? 1 : 0)))
+    new Int32Array(usedTransFlag.map((flag) => (flag ? 1 : 0)))
   )
   gl.uniform1iv(
     uUsedRegFlagLoc,
-    new Int32Array(formula.usedRegFlag.map((flag) => (flag ? 1 : 0)))
+    new Int32Array(usedRegFlag.map((flag) => (flag ? 1 : 0)))
   )
 }
 
