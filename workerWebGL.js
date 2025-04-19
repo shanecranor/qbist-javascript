@@ -181,11 +181,14 @@ function loadStateFromParam(stateBase64) {
       stateObj.transformSequence &&
       stateObj.source &&
       stateObj.control &&
-      stateObj.dest &&
-      stateObj.usedTransFlag &&
-      stateObj.usedRegFlag
+      stateObj.dest
     ) {
-      return stateObj
+      const info = {
+        ...stateObj,
+        usedTransFlag: new Array(36).fill(true),
+        usedRegFlag: new Array(6).fill(true),
+      }
+      return info
     }
     console.error("Invalid pattern state")
     return null

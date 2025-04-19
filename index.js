@@ -1,4 +1,4 @@
-import { createInfo, modifyInfo } from "/qbist.js"
+import { createInfo, modifyInfo, optimize } from "/qbist.js"
 import { loadStateFromParam } from "/qbistListeners.js"
 
 // Get UI elements
@@ -16,13 +16,21 @@ function drawQbist(canvas, info, oversampling = 0) {
       return
     }
 
+    // Run optimize function
+    const { usedTransFlag, usedRegFlag } = optimize(info)
+    const optimizedInfo = {
+      ...info,
+      usedTransFlag,
+      usedRegFlag,
+    }
+
     // Check if canvas was already transferred
     if (transferredCanvases.has(canvas)) {
       // For already transferred canvases, just send the new info to update
       const worker = canvas.worker
       worker.postMessage({
         type: "update",
-        info: info,
+        info: optimizedInfo,
       })
       resolve()
       return
@@ -71,7 +79,7 @@ function drawQbist(canvas, info, oversampling = 0) {
         canvas: offscreen,
         width: canvas.width,
         height: canvas.height,
-        info: info,
+        info: optimizedInfo,
         keepAlive: true, // Keep the worker alive for future updates
       },
       [offscreen]
@@ -99,8 +107,14 @@ export function updateAll() {
     const canvas = document.getElementById(`preview${i}`)
     drawQbist(canvas, formulas[i], 1)
   }
+  const stateToSave = {
+    transformSequence: mainFormula.transformSequence,
+    source: mainFormula.source,
+    control: mainFormula.control,
+    dest: mainFormula.dest,
+  }
   const url = new URL(window.location.href)
-  url.searchParams.set("state", btoa(JSON.stringify(mainFormula)))
+  url.searchParams.set("state", btoa(JSON.stringify(stateToSave)))
   window.history.pushState({}, "", url)
 }
 
