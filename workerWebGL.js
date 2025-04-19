@@ -181,12 +181,9 @@ function loadStateFromParam(stateBase64) {
       stateObj.control &&
       stateObj.dest
     ) {
-      const info = {
+      return {
         ...stateObj,
-        usedTransFlag: new Array(36).fill(true),
-        usedRegFlag: new Array(6).fill(true),
       }
-      return info
     }
     console.error("Invalid pattern state")
     return null
