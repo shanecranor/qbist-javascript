@@ -62,8 +62,8 @@ const fragmentShaderSource = `#version 300 es
               float scalarProd = dot(src, ctrl);
               r[dr] = src * scalarProd;
             } else if (t == 1) { // SHIFT
-              vec3 diff = src - ctrl;
-              r[dr] = diff + step(diff, vec3(0.0));
+              vec3 sum = src + ctrl;
+              r[dr] = sum - step(vec3(1.0), sum);
             } else if (t == 2) { // SHIFTBACK
               // step(edge, x) == 1.0 when x >= edge, else 0.0.
               // We want 1.0 exactly when diff <= 0.0, so swap args:
