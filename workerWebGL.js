@@ -39,6 +39,11 @@ const fragmentShaderSource = `#version 300 es
     const int MAX_TRANSFORMS = 36;
     const int NUM_REGISTERS = 6;
     
+    // Optimized wrap function that matches C/JS behavior without branching
+    vec3 wrap(vec3 v) {
+        return v - floor(v);
+    }
+    
     void main() {
       vec2 pixelCoord = (vUV * vec2(uResolution));
       vec3 accum = vec3(0.0);
@@ -60,36 +65,27 @@ const fragmentShaderSource = `#version 300 es
             vec3 ctrl = r[cr];
             if (t == 0) { // PROJECTION
               float scalarProd = dot(src, ctrl);
-              // In C/JS this multiplies without clamping
               r[dr] = src * scalarProd;
             } else if (t == 1) { // SHIFT
-              vec3 sum = src + ctrl;
-              // Explicit handling of wrap-around like in C/JS
-              r[dr] = vec3(
-                sum.x >= 1.0 ? sum.x - 1.0 : sum.x,
-                sum.y >= 1.0 ? sum.y - 1.0 : sum.y,
-                sum.z >= 1.0 ? sum.z - 1.0 : sum.z
-              );
-            } else if (t == 2) { // SHIFTBACK
               vec3 diff = src - ctrl;
-              // Explicit handling of wrap-around like in C/JS
-              r[dr] = vec3(
-                diff.x <= 0.0 ? diff.x + 1.0 : diff.x,
-                diff.y <= 0.0 ? diff.y + 1.0 : diff.y,
-                diff.z <= 0.0 ? diff.z + 1.0 : diff.z
-              );
+              r[dr] = diff + step(diff, vec3(0.0));
+            } else if (t == 2) { // SHIFTBACK
+              // step(edge, x) == 1.0 when x >= edge, else 0.0.
+              // We want 1.0 exactly when diff <= 0.0, so swap args:
+              vec3 diff = src - ctrl;
+              r[dr] = diff + step(diff, vec3(0.0));
             } else if (t == 3) { // ROTATE
               r[dr] = vec3(src.y, src.z, src.x);
             } else if (t == 4) { // ROTATE2
               r[dr] = vec3(src.z, src.x, src.y);
             } else if (t == 5) { // MULTIPLY
-              // Direct multiplication without clamping like in C/JS
               r[dr] = src * ctrl;
             } else if (t == 6) { // SINE
               r[dr] = vec3(0.5) + 0.5 * sin(20.0 * src * ctrl);
             } else if (t == 7) { // CONDITIONAL
               float sum = ctrl.x + ctrl.y + ctrl.z;
-              r[dr] = sum > 0.5 ? src : ctrl;
+              float t   = step(1.5, sum);    // 0.0 if sum<1.5, 1.0 otherwise
+              r[dr]     = mix(ctrl, src, t);  
             } else if (t == 8) { // COMPLEMENT
               r[dr] = vec3(1.0) - src;
             }
