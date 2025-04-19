@@ -62,6 +62,15 @@ export function loadStateFromParam(stateBase64) {
   }
 }
 
+// Listen for URL state changes (back/forward navigation)
+window.addEventListener("popstate", (event) => {
+  const url = new URL(window.location.href)
+  const state = url.searchParams.get("state")
+  if (state) {
+    loadStateFromParam(state)
+  }
+})
+
 // --- GIMP Format Import/Export Functions ---
 function exportToGimp() {
   const buffer = exportToGimpFormat(mainFormula)
@@ -103,14 +112,15 @@ function importFromGimp() {
   input.click()
 }
 
-// when a preview is clicked, use its formula as the new main pattern
-document.querySelectorAll(".preview").forEach((canvas) => {
-  canvas.addEventListener("click", () => {
+// Use event delegation for preview clicks since canvases get recreated
+document.getElementById("grid").addEventListener("click", (event) => {
+  const canvas = event.target.closest(".preview")
+  if (canvas) {
     const index = parseInt(canvas.id.replace("preview", ""))
     Object.assign(mainFormula, formulas[index])
     generateFormulas()
     updateAll()
-  })
+  }
 })
 
 // button event listeners

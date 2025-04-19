@@ -15,6 +15,8 @@ let uResolutionLoc,
   uUsedRegFlagLoc
 let isSingleRender = false
 let keepAlive = false
+let vao = null
+let positionBuffer = null
 
 // Shader sources
 const vertexShaderSource = `#version 300 es
@@ -211,8 +213,34 @@ function render(time) {
   }
 }
 
+// Clean up WebGL resources
+function cleanupWebGL() {
+  if (!gl) return
+  if (program) {
+    // Delete shaders attached to the program
+    const shaders = gl.getAttachedShaders(program)
+    if (shaders) {
+      shaders.forEach((shader) => gl.deleteShader(shader))
+    }
+    gl.deleteProgram(program)
+  }
+  if (vao) gl.deleteVertexArray(vao)
+  if (positionBuffer) gl.deleteBuffer(positionBuffer)
+  // Reset all references
+  gl = null
+  program = null
+  vao = null
+  positionBuffer = null
+}
+
 // Message handler
 self.addEventListener("message", (event) => {
+  if (event.data.type === "cleanup") {
+    cleanupWebGL()
+    self.close()
+    return
+  }
+
   if (event.data.type === "update") {
     mainFormula = event.data.info
     uploadFormula(mainFormula)
@@ -240,9 +268,9 @@ self.addEventListener("message", (event) => {
   const quadVertices = new Float32Array([
     -1, -1, 1, -1, -1, 1, -1, 1, 1, -1, 1, 1,
   ])
-  const vao = gl.createVertexArray()
+  vao = gl.createVertexArray()
   gl.bindVertexArray(vao)
-  const positionBuffer = gl.createBuffer()
+  positionBuffer = gl.createBuffer()
   gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer)
   gl.bufferData(gl.ARRAY_BUFFER, quadVertices, gl.STATIC_DRAW)
   const posLoc = gl.getAttribLocation(program, "aPosition")
