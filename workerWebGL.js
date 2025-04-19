@@ -9,7 +9,9 @@ let uResolutionLoc,
   uTransformSequenceLoc,
   uSourceLoc,
   uControlLoc,
-  uDestLoc
+  uDestLoc,
+  uUsedTransFlagLoc,
+  uUsedRegFlagLoc
 let isSingleRender = false
 let keepAlive = false
 
@@ -18,9 +20,9 @@ const vertexShaderSource = `#version 300 es
     in vec2 aPosition;
     out vec2 vUV;
     void main() {
-      vUV = aPosition * 0.5 + 0.5;
-      // Flip Y coordinate by negating the y component
-      gl_Position = vec4(aPosition.x, -aPosition.y, 0.0, 1.0);
+      // Keep Y coordinate inverted in UVs to match JavaScript coordinate system
+      vUV = vec2(aPosition.x + 1.0, -aPosition.y + 1.0) * 0.5;
+      gl_Position = vec4(aPosition, 0.0, 1.0);
     }`
 
 const fragmentShaderSource = `#version 300 es
@@ -33,6 +35,8 @@ const fragmentShaderSource = `#version 300 es
     uniform int uSource[36];
     uniform int uControl[36];
     uniform int uDest[36];
+    uniform int uUsedTransFlag[36];
+    uniform int uUsedRegFlag[6];
     out vec4 outColor;
     
     #define OVERSAMPLING 2
@@ -40,18 +44,28 @@ const fragmentShaderSource = `#version 300 es
     const int NUM_REGISTERS = 6;
     
     void main() {
-      vec2 pixelCoord = (vUV * vec2(uResolution));
+      // vUV is already in the correct coordinate space (0,0 at top-left)
+      vec2 pixelCoord = vUV * vec2(uResolution);
       vec3 accum = vec3(0.0);
-      int samples = OVERSAMPLING * OVERSAMPLING;
+      
       for (int oy = 0; oy < OVERSAMPLING; oy++) {
         for (int ox = 0; ox < OVERSAMPLING; ox++) {
-          vec2 subPixel = (pixelCoord * float(OVERSAMPLING) + vec2(float(ox), float(oy))) /
-                          (vec2(uResolution) * float(OVERSAMPLING));
+          // Calculate exact subpixel position
+          vec2 subPixelPos = (floor(pixelCoord) * float(OVERSAMPLING) + vec2(float(ox), float(oy))) / (vec2(uResolution) * float(OVERSAMPLING));
+          
           vec3 r[NUM_REGISTERS];
           for (int i = 0; i < NUM_REGISTERS; i++) {
-            r[i] = vec3(subPixel, float(i) / float(NUM_REGISTERS));
+            if (uUsedRegFlag[i] == 1) {
+              // Match JavaScript coordinate space exactly
+              r[i] = vec3(subPixelPos.x, subPixelPos.y, float(i) / float(NUM_REGISTERS));
+            } else {
+              r[i] = vec3(0.0);
+            }
           }
+          
+          // Rest of the shader remains the same...
           for (int i = 0; i < MAX_TRANSFORMS; i++) {
+            if (uUsedTransFlag[i] != 1) continue;
             int t = uTransformSequence[i];
             int sr = uSource[i];
             int cr = uControl[i];
@@ -65,8 +79,6 @@ const fragmentShaderSource = `#version 300 es
               vec3 sum = src + ctrl;
               r[dr] = sum - step(vec3(1.0), sum);
             } else if (t == 2) { // SHIFTBACK
-              // step(edge, x) == 1.0 when x >= edge, else 0.0.
-              // We want 1.0 exactly when diff <= 0.0, so swap args:
               vec3 diff = src - ctrl;
               r[dr] = diff + step(diff, vec3(0.0));
             } else if (t == 3) { // ROTATE
@@ -79,7 +91,7 @@ const fragmentShaderSource = `#version 300 es
               r[dr] = vec3(0.5) + 0.5 * sin(20.0 * src * ctrl);
             } else if (t == 7) { // CONDITIONAL
               float sum = ctrl.x + ctrl.y + ctrl.z;
-              float t   = step(1.5, sum);    // 0.0 if sum<1.5, 1.0 otherwise
+              float t   = step(1.5, sum);
               r[dr]     = mix(ctrl, src, t);  
             } else if (t == 8) { // COMPLEMENT
               r[dr] = vec3(1.0) - src;
@@ -88,7 +100,7 @@ const fragmentShaderSource = `#version 300 es
           accum += r[0];
         }
       }
-      vec3 color = accum / float(samples);
+      vec3 color = accum / float(OVERSAMPLING * OVERSAMPLING);
       outColor = vec4(color, 1.0);
     }`
 
@@ -131,12 +143,18 @@ function createInfo() {
     source: [],
     control: [],
     dest: [],
+    usedTransFlag: [],
+    usedRegFlag: [],
   }
   for (let k = 0; k < 36; k++) {
     info.transformSequence.push(randomInt(0, 9))
     info.source.push(randomInt(0, 6))
     info.control.push(randomInt(0, 6))
     info.dest.push(randomInt(0, 6))
+    info.usedTransFlag.push(true)
+  }
+  for (let k = 0; k < 6; k++) {
+    info.usedRegFlag.push(true)
   }
   return info
 }
@@ -150,6 +168,14 @@ function uploadFormula(formula) {
   gl.uniform1iv(uSourceLoc, new Int32Array(formula.source))
   gl.uniform1iv(uControlLoc, new Int32Array(formula.control))
   gl.uniform1iv(uDestLoc, new Int32Array(formula.dest))
+  gl.uniform1iv(
+    uUsedTransFlagLoc,
+    new Int32Array(formula.usedTransFlag.map((flag) => (flag ? 1 : 0)))
+  )
+  gl.uniform1iv(
+    uUsedRegFlagLoc,
+    new Int32Array(formula.usedRegFlag.map((flag) => (flag ? 1 : 0)))
+  )
 }
 
 function loadStateFromParam(stateBase64) {
@@ -160,7 +186,9 @@ function loadStateFromParam(stateBase64) {
       stateObj.transformSequence &&
       stateObj.source &&
       stateObj.control &&
-      stateObj.dest
+      stateObj.dest &&
+      stateObj.usedTransFlag &&
+      stateObj.usedRegFlag
     ) {
       return stateObj
     }
@@ -235,6 +263,8 @@ self.addEventListener("message", (event) => {
   uSourceLoc = gl.getUniformLocation(program, "uSource")
   uControlLoc = gl.getUniformLocation(program, "uControl")
   uDestLoc = gl.getUniformLocation(program, "uDest")
+  uUsedTransFlagLoc = gl.getUniformLocation(program, "uUsedTransFlag")
+  uUsedRegFlagLoc = gl.getUniformLocation(program, "uUsedRegFlag")
 
   gl.uniform2i(uResolutionLoc, canvas.width, canvas.height)
 
