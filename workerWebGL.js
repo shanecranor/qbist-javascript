@@ -19,7 +19,8 @@ const vertexShaderSource = `#version 300 es
     out vec2 vUV;
     void main() {
       vUV = aPosition * 0.5 + 0.5;
-      gl_Position = vec4(aPosition, 0.0, 1.0);
+      // Flip Y coordinate by negating the y component
+      gl_Position = vec4(aPosition.x, -aPosition.y, 0.0, 1.0);
     }`
 
 const fragmentShaderSource = `#version 300 es
@@ -39,7 +40,7 @@ const fragmentShaderSource = `#version 300 es
     const int NUM_REGISTERS = 6;
     
     void main() {
-      vec2 pixelCoord = vUV * vec2(uResolution);
+      vec2 pixelCoord = (vUV * vec2(uResolution));
       vec3 accum = vec3(0.0);
       int samples = OVERSAMPLING * OVERSAMPLING;
       for (int oy = 0; oy < OVERSAMPLING; oy++) {
@@ -48,7 +49,7 @@ const fragmentShaderSource = `#version 300 es
                           (vec2(uResolution) * float(OVERSAMPLING));
           vec3 r[NUM_REGISTERS];
           for (int i = 0; i < NUM_REGISTERS; i++) {
-            r[i] = (vec3(subPixel, float(i) / float(NUM_REGISTERS)) + vec3(0,0,uTime * 0.1)) * 1.0;
+            r[i] = (vec3(subPixel, float(i) / float(NUM_REGISTERS))) * 1.0;
           }
           for (int i = 0; i < MAX_TRANSFORMS; i++) {
             int t = uTransformSequence[i];
