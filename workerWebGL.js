@@ -49,7 +49,7 @@ const fragmentShaderSource = `#version 300 es
                           (vec2(uResolution) * float(OVERSAMPLING));
           vec3 r[NUM_REGISTERS];
           for (int i = 0; i < NUM_REGISTERS; i++) {
-            r[i] = (vec3(subPixel, float(i) / float(NUM_REGISTERS))) * 1.0;
+            r[i] = vec3(subPixel, float(i) / float(NUM_REGISTERS));
           }
           for (int i = 0; i < MAX_TRANSFORMS; i++) {
             int t = uTransformSequence[i];
@@ -58,27 +58,39 @@ const fragmentShaderSource = `#version 300 es
             int dr = uDest[i];
             vec3 src = r[sr];
             vec3 ctrl = r[cr];
-            if (t == 0) {
+            if (t == 0) { // PROJECTION
               float scalarProd = dot(src, ctrl);
+              // In C/JS this multiplies without clamping
               r[dr] = src * scalarProd;
-            } else if (t == 1) {
-              r[dr] = mod(src + ctrl, 1.0);
-            } else if (t == 2) {
-              r[dr] = mod(src - ctrl, 1.0);
-            } else if (t == 3) {
+            } else if (t == 1) { // SHIFT
+              vec3 sum = src + ctrl;
+              // Explicit handling of wrap-around like in C/JS
+              r[dr] = vec3(
+                sum.x >= 1.0 ? sum.x - 1.0 : sum.x,
+                sum.y >= 1.0 ? sum.y - 1.0 : sum.y,
+                sum.z >= 1.0 ? sum.z - 1.0 : sum.z
+              );
+            } else if (t == 2) { // SHIFTBACK
+              vec3 diff = src - ctrl;
+              // Explicit handling of wrap-around like in C/JS
+              r[dr] = vec3(
+                diff.x <= 0.0 ? diff.x + 1.0 : diff.x,
+                diff.y <= 0.0 ? diff.y + 1.0 : diff.y,
+                diff.z <= 0.0 ? diff.z + 1.0 : diff.z
+              );
+            } else if (t == 3) { // ROTATE
               r[dr] = vec3(src.y, src.z, src.x);
-            } else if (t == 4) {
+            } else if (t == 4) { // ROTATE2
               r[dr] = vec3(src.z, src.x, src.y);
-            } else if (t == 5) {
+            } else if (t == 5) { // MULTIPLY
+              // Direct multiplication without clamping like in C/JS
               r[dr] = src * ctrl;
-            } else if (t == 6) {
-              r[dr] = vec3(0.5 + 0.5*sin(20.0*src.x*ctrl.x),
-                           0.5 + 0.5*sin(20.0*src.y*ctrl.y),
-                           0.5 + 0.5*sin(20.0*src.z*ctrl.z));
-            } else if (t == 7) {
+            } else if (t == 6) { // SINE
+              r[dr] = vec3(0.5) + 0.5 * sin(20.0 * src * ctrl);
+            } else if (t == 7) { // CONDITIONAL
               float sum = ctrl.x + ctrl.y + ctrl.z;
               r[dr] = sum > 0.5 ? src : ctrl;
-            } else if (t == 8) {
+            } else if (t == 8) { // COMPLEMENT
               r[dr] = vec3(1.0) - src;
             }
           }
