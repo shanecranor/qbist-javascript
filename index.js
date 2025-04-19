@@ -1,30 +1,51 @@
 import { createInfo, modifyInfo } from "/qbist.js"
 import { loadStateFromParam } from "/qbistListeners.js"
+
+// Get UI elements
+const loadingOverlay = document.getElementById("loadingOverlay")
+const loadingBar = document.getElementById("loadingBar")
+loadingOverlay.style.display = "none"
+
+// Keep track of which canvases have been transferred
+const transferredCanvases = new WeakSet()
+
 function drawQbist(canvas, info, oversampling = 0) {
   return new Promise((resolve, reject) => {
     if (typeof Worker === "undefined") {
       reject(new Error("Web Workers are not supported in this browser"))
       return
     }
-    const ctx = canvas.getContext("2d")
-    const width = canvas.width
-    const height = canvas.height
+
+    // Check if canvas was already transferred
+    if (transferredCanvases.has(canvas)) {
+      // For already transferred canvases, just send the new info to update
+      const worker = canvas.worker
+      worker.postMessage({
+        type: "update",
+        info: info,
+      })
+      resolve()
+      return
+    }
 
     // Create the worker instance
-    const worker = new Worker("worker.js", { type: "module" })
+    const worker = new Worker("workerWebGL.js", { type: "module" })
+
+    // Store worker reference on the canvas
+    canvas.worker = worker
+
+    // Create an OffscreenCanvas for WebGL rendering
+    const offscreen = canvas.transferControlToOffscreen()
+
+    // Mark this canvas as transferred
+    transferredCanvases.add(canvas)
+
     // Listen for messages from the worker
     worker.addEventListener("message", (e) => {
-      const { command } = e.data
-      if (command === "progress") {
-        const { progress } = e.data
-        loadingOverlay.style.display = "flex"
-        loadingBar.style.width = `${progress}%`
-      } else if (command === "rendered") {
-        const { imageData } = e.data
-        const data = new Uint8ClampedArray(imageData)
-        const imgData = new ImageData(data, width, height)
-        ctx.putImageData(imgData, 0, 0)
-        worker.terminate() // Clean up the worker
+      if (e.data.command === "rendered") {
+        if (!e.data.keepAlive) {
+          worker.terminate() // Clean up the worker
+        }
         loadingOverlay.style.display = "none"
         resolve() // Resolve the Promise when rendering is complete
       }
@@ -37,15 +58,24 @@ function drawQbist(canvas, info, oversampling = 0) {
       reject(err)
     })
 
-    // Prepare and send the payload to the worker
-    const payload = {
-      command: "render",
-      info,
-      width,
-      height,
-      oversampling,
+    // Show loading overlay for main canvas only
+    if (canvas.id === "mainPattern") {
+      loadingOverlay.style.display = "flex"
+      loadingBar.style.width = "100%"
     }
-    worker.postMessage(payload)
+
+    // Initialize the WebGL worker with the canvas and formula
+    worker.postMessage(
+      {
+        type: "init",
+        canvas: offscreen,
+        width: canvas.width,
+        height: canvas.height,
+        info: info,
+        keepAlive: true, // Keep the worker alive for future updates
+      },
+      [offscreen]
+    )
   })
 }
 
@@ -110,7 +140,3 @@ export async function downloadImage(outputWidth, outputHeight, oversampling) {
   link.click()
   document.body.removeChild(link)
 }
-
-const loadingOverlay = document.getElementById("loadingOverlay")
-const loadingBar = document.getElementById("loadingBar")
-loadingOverlay.style.display = "none"
