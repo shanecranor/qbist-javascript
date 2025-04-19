@@ -7,7 +7,7 @@ self.addEventListener("message", (event) => {
     return
   }
   const canvas = event.data.canvas
-  const gl = canvas.getContext("webgl2")
+  const gl = canvas.getContext("webgl2", { antialias: true })
   if (!gl) {
     console.error("WebGL2 is not available in this worker.")
     return
@@ -55,7 +55,7 @@ self.addEventListener("message", (event) => {
             // Initialize registers with the subpixel coordinate and add a time offset.
             vec3 r[NUM_REGISTERS];
             for (int i = 0; i < NUM_REGISTERS; i++) {
-              r[i] = (vec3(subPixel, float(i) / float(NUM_REGISTERS)) + vec3(0,0,uTime * 0.0)) * 1.0;
+              r[i] = (vec3(subPixel, float(i) / float(NUM_REGISTERS)) + vec3(0,0,uTime * 0.1)) * 1.0;
             }
             // Apply each of the 36 transformations.
             for (int i = 0; i < MAX_TRANSFORMS; i++) {

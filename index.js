@@ -2,9 +2,9 @@ import { createInfo, modifyInfo } from "/qbist.js"
 import { loadStateFromParam } from "/qbistListeners.js"
 function drawQbist(canvas, info, oversampling = 0) {
   return new Promise((resolve, reject) => {
-    if (typeof Worker === 'undefined') {
-      reject(new Error('Web Workers are not supported in this browser'));
-      return;
+    if (typeof Worker === "undefined") {
+      reject(new Error("Web Workers are not supported in this browser"))
+      return
     }
     const ctx = canvas.getContext("2d")
     const width = canvas.width
