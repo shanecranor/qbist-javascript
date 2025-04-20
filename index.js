@@ -109,9 +109,8 @@ export function generateFormulas() {
 }
 
 // Draw the large main pattern and each preview.
-export function updateAll() {
+export async function updateAll() {
   const mainCanvas = document.getElementById("mainPattern")
-  const oldMainWorker = mainCanvas.worker
   const activeCanvases = []
 
   // Start main canvas rendering with keepAlive=true since it's always visible
@@ -127,19 +126,11 @@ export function updateAll() {
 
   // Update URL state after starting the renders
   const stateToSave = {
-    transformSequence: mainFormula.transformSequence,
-    source: mainFormula.source,
-    control: mainFormula.control,
-    dest: mainFormula.dest,
+    ...mainFormula,
   }
   const url = new URL(window.location.href)
   url.searchParams.set("state", btoa(JSON.stringify(stateToSave)))
   window.history.pushState({}, "", url)
-
-  // Ensure old worker is cleaned up only after new renders have started
-  if (oldMainWorker) {
-    oldMainWorker.postMessage({ type: "cleanup" })
-  }
 
   // Return promise that resolves when all renders complete
   return Promise.all(activeCanvases).catch((err) => {
