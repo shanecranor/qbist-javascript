@@ -20,21 +20,19 @@ function cleanupWorker(canvas) {
   }
 }
 
-function drawQbist(canvas, info, oversampling = 0) {
+function drawQbist(canvas, info, oversampling = 0, keepAlive = false) {
   return new Promise((resolve, reject) => {
     if (typeof Worker === "undefined") {
       reject(new Error("Web Workers are not supported in this browser"))
       return
     }
-    const isExport = canvas.id === "exportCanvas"
-    const keepAlive = !isExport
 
     // If we already have a worker for this canvas and it's keepAlive,
     // just send an update message instead of transferring again
     if (canvas.worker && keepAlive) {
       canvas.worker.postMessage({
         type: "update",
-        info,
+        info: info,
       })
       resolve()
       return
@@ -74,7 +72,7 @@ function drawQbist(canvas, info, oversampling = 0) {
       })
 
       // Show loading overlay for exports only
-      if (isExport) {
+      if (canvas.id === "exportCanvas") {
         loadingOverlay.style.display = "flex"
         loadingBar.style.width = "100%"
       }
@@ -86,7 +84,7 @@ function drawQbist(canvas, info, oversampling = 0) {
           canvas: offscreen,
           width: canvas.width,
           height: canvas.height,
-          info: optimizedInfo,
+          info: info,
           keepAlive,
         },
         [offscreen]
@@ -116,14 +114,14 @@ export function updateAll() {
   const oldMainWorker = mainCanvas.worker
   const activeCanvases = []
 
-  // Start main canvas rendering
-  const mainPromise = drawQbist(mainCanvas, mainFormula, 1)
+  // Start main canvas rendering with keepAlive=true since it's always visible
+  const mainPromise = drawQbist(mainCanvas, mainFormula, 1, true)
   activeCanvases.push(mainPromise)
 
-  // Start all preview renderings
+  // Start all preview renderings with keepAlive=true
   for (let i = 0; i < 9; i++) {
     const canvas = document.getElementById(`preview${i}`)
-    const previewPromise = drawQbist(canvas, formulas[i], 1)
+    const previewPromise = drawQbist(canvas, formulas[i], 1, true)
     activeCanvases.push(previewPromise)
   }
 
