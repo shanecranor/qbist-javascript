@@ -77,12 +77,15 @@ function exportToGimp() {
   const blob = new Blob([buffer], { type: "application/octet-stream" })
   const url = URL.createObjectURL(blob)
   const link = document.createElement("a")
-  link.href = url
-  link.download = "pattern.qbe"
-  document.body.appendChild(link)
-  link.click()
-  document.body.removeChild(link)
-  URL.revokeObjectURL(url)
+  try {
+    link.href = url
+    link.download = "pattern.qbe"
+    document.body.appendChild(link)
+    link.click()
+  } finally {
+    document.body.removeChild(link)
+    URL.revokeObjectURL(url)
+  }
 }
 
 function importFromGimp() {
