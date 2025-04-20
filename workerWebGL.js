@@ -214,30 +214,25 @@ function render(time) {
   if (isSingleRender && !keepAlive) {
     gl.finish() // Make sure rendering is complete
 
-    // Read pixels and handle potential WebGL errors
     try {
-      const width = gl.canvas.width
-      const height = gl.canvas.height
-      const pixels = new Uint8Array(width * height * 4)
-      gl.readPixels(0, 0, width, height, gl.RGBA, gl.UNSIGNED_BYTE, pixels)
+      // Transfer the canvas to an ImageBitmap
+      const bitmap = gl.canvas.transferToImageBitmap()
 
-      // Send the pixel data directly
+      // Send the ImageBitmap directly
       self.postMessage(
         {
           command: "rendered",
           keepAlive: false,
-          kind: "pixels",
-          width,
-          height,
-          pixels: pixels.buffer,
+          kind: "bitmap",
+          bitmap,
         },
-        [pixels.buffer]
+        [bitmap]
       )
     } catch (err) {
-      console.error("Error reading pixels:", err)
+      console.error("Error transferring to ImageBitmap:", err)
       self.postMessage({
         command: "error",
-        message: "Failed to read pixels from WebGL context",
+        message: "Failed to transfer canvas to ImageBitmap",
       })
     }
   } else {

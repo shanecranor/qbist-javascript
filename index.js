@@ -191,30 +191,16 @@ export async function downloadImage(outputWidth, outputHeight, oversampling) {
       }
 
       worker.addEventListener("message", (e) => {
-        if (e.data.command === "rendered" && e.data.kind === "pixels") {
+        if (e.data.command === "rendered" && e.data.kind === "bitmap") {
           try {
-            // Create a temporary canvas to handle the pixel data
+            // Create a temporary canvas to draw the ImageBitmap
             const tempCanvas = document.createElement("canvas")
-            tempCanvas.width = e.data.width
-            tempCanvas.height = e.data.height
+            tempCanvas.width = outputWidth
+            tempCanvas.height = outputHeight
             const ctx = tempCanvas.getContext("2d")
 
-            // Create ImageData from the received pixels
-            const pixels = new Uint8ClampedArray(e.data.pixels)
-            const imageData = new ImageData(pixels, e.data.width, e.data.height)
-
-            // Need to flip the image vertically since WebGL uses different coordinate system
-            const flipCanvas = document.createElement("canvas")
-            flipCanvas.width = e.data.width
-            flipCanvas.height = e.data.height
-            const flipCtx = flipCanvas.getContext("2d")
-            flipCtx.putImageData(imageData, 0, 0)
-
-            // Draw flipped image
-            ctx.save()
-            ctx.scale(1, -1)
-            ctx.drawImage(flipCanvas, 0, -e.data.height)
-            ctx.restore()
+            // Draw the ImageBitmap onto the canvas
+            ctx.drawImage(e.data.bitmap, 0, 0)
 
             // Convert to data URL and trigger download
             const dataURL = tempCanvas.toDataURL("image/png")
