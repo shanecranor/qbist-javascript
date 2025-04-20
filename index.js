@@ -13,6 +13,7 @@ class QbistRenderer {
     this.worker = null
     this.isInitialized = false
     this.keepAlive = false
+    console.log(`[Canvas Create] Created renderer for canvas ${canvas.id}`)
     this._setupWorker()
   }
 
@@ -38,6 +39,9 @@ class QbistRenderer {
     }
     this.isInitialized = false
     this.keepAlive = false
+    console.log(
+      `[Canvas Delete] Cleaned up renderer for canvas ${this.canvas.id}`
+    )
   }
 
   async render(info, options = {}) {
@@ -124,17 +128,6 @@ class QbistExporter {
     this.renderer = null
   }
 
-  cleanup() {
-    if (this.renderer) {
-      this.renderer.cleanup()
-      this.renderer = null
-    }
-    if (this.exportCanvas && this.exportCanvas.parentNode) {
-      document.body.removeChild(this.exportCanvas)
-      this.exportCanvas = null
-    }
-  }
-
   async exportImage(info, width, height) {
     try {
       this.cleanup()
@@ -144,6 +137,7 @@ class QbistExporter {
       this.exportCanvas.width = width
       this.exportCanvas.height = height
       document.body.appendChild(this.exportCanvas)
+      console.log(`[Canvas Create] Created export canvas ${width}x${height}`)
 
       this.renderer = new QbistRenderer(this.exportCanvas)
       const result = await this.renderer.render(info, { isExport: true })
@@ -153,6 +147,9 @@ class QbistExporter {
         const tempCanvas = document.createElement("canvas")
         tempCanvas.width = width
         tempCanvas.height = height
+        console.log(
+          `[Canvas Create] Created temporary canvas for export ${width}x${height}`
+        )
 
         const ctx = tempCanvas.getContext("2d")
         ctx.drawImage(result.bitmap, 0, 0)
@@ -162,9 +159,22 @@ class QbistExporter {
         document.body.appendChild(link)
         link.click()
         document.body.removeChild(link)
+        console.log(`[Canvas Delete] Removed temporary canvas`)
       }
     } finally {
       this.cleanup()
+    }
+  }
+
+  cleanup() {
+    if (this.renderer) {
+      this.renderer.cleanup()
+      this.renderer = null
+    }
+    if (this.exportCanvas && this.exportCanvas.parentNode) {
+      console.log(`[Canvas Delete] Removed export canvas`)
+      document.body.removeChild(this.exportCanvas)
+      this.exportCanvas = null
     }
   }
 }

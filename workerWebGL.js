@@ -159,6 +159,7 @@ const Renderer = {
     })
 
     if (!gl) throw new Error("WebGL2 not available")
+    console.log("[WebGL Canvas Create] Initialized WebGL2 context")
 
     RendererState.gl = gl
     this.initProgram()
@@ -317,6 +318,8 @@ const Renderer = {
     const { gl, program, vao, positionBuffer } = RendererState
 
     if (!gl) return
+
+    console.log("[WebGL Canvas Delete] Cleaning up WebGL context and resources")
 
     if (program) {
       const shaders = gl.getAttachedShaders(program)
