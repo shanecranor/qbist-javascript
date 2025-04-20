@@ -1,5 +1,5 @@
-import { createInfo, modifyInfo, optimize } from "/qbist.js"
-import { loadStateFromParam } from "/qbistListeners.js"
+import { createInfo, modifyInfo, optimize } from "./qbist.js"
+import { loadStateFromParam } from "./qbistListeners.js"
 
 // Get UI elements
 const loadingOverlay = document.getElementById("loadingOverlay")
