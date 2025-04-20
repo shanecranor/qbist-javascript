@@ -20,7 +20,7 @@ function cleanupWorker(canvas) {
   }
 }
 
-function drawQbist(canvas, info, oversampling = 0, keepAlive = false) {
+async function drawQbist(canvas, info, oversampling = 0, keepAlive = false) {
   return new Promise((resolve, reject) => {
     if (typeof Worker === "undefined") {
       reject(new Error("Web Workers are not supported in this browser"))
@@ -30,11 +30,15 @@ function drawQbist(canvas, info, oversampling = 0, keepAlive = false) {
     // If we already have a worker for this canvas and it's keepAlive,
     // just send an update message instead of transferring again
     if (canvas.worker && keepAlive) {
-      canvas.worker.postMessage({
-        type: "update",
-        info: info,
-      })
-      resolve()
+      // wait for the worker to finish before resolving
+      const onRendered = (e) => {
+        if (e.data.command === "rendered") {
+          canvas.worker.removeEventListener("message", onRendered)
+          resolve()
+        }
+      }
+      canvas.worker.addEventListener("message", onRendered)
+      canvas.worker.postMessage({ type: "update", info })
       return
     }
 

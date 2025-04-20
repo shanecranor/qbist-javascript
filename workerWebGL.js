@@ -1,5 +1,5 @@
 // worker.js
-import { optimize } from "/qbist.js"
+import { optimize } from "./qbist.js"
 
 // Global variables and context
 let gl = null
