@@ -1,118 +1,175 @@
 import { createInfo, modifyInfo, optimize } from "./qbist.js"
 import { loadStateFromParam } from "./qbistListeners.js"
 
-// Get UI elements
+// UI Elements
 const loadingOverlay = document.getElementById("loadingOverlay")
 const loadingBar = document.getElementById("loadingBar")
 loadingOverlay.style.display = "none"
 
-// Keep track of which canvases have been transferred
-const transferredCanvases = new WeakSet()
+// Renderer Management
+class QbistRenderer {
+  constructor(canvas) {
+    this.canvas = canvas
+    this.worker = null
+    this.isInitialized = false
+    this.keepAlive = false
+    this._setupWorker()
+  }
 
-// Clean up worker for a canvas
-function cleanupWorker(canvas) {
-  if (canvas.worker) {
-    // Send cleanup message to worker before terminating
-    canvas.worker.postMessage({ type: "cleanup" })
-    // Remove from transferred set
-    delete canvas.worker
-    transferredCanvases.delete(canvas)
+  _setupWorker() {
+    if (typeof Worker === "undefined") {
+      throw new Error("Web Workers are not supported in this browser")
+    }
+
+    // Cleanup existing worker if any
+    this.cleanup()
+
+    this.worker = new Worker("workerWebGL.js", { type: "module" })
+    this.worker.onerror = (err) => {
+      console.error("Worker error:", err)
+      this.cleanup()
+    }
+  }
+
+  cleanup() {
+    if (this.worker) {
+      this.worker.postMessage({ type: "cleanup" })
+      this.worker = null
+    }
+    this.isInitialized = false
+    this.keepAlive = false
+  }
+
+  async render(info, options = {}) {
+    const { keepAlive = false, isExport = false } = options
+    this.keepAlive = keepAlive
+
+    return new Promise((resolve, reject) => {
+      if (!this.worker) {
+        this._setupWorker()
+      }
+
+      const onMessage = (e) => {
+        if (e.data.command === "rendered") {
+          if (!this.keepAlive) {
+            this.worker.removeEventListener("message", onMessage)
+          }
+          if (isExport) {
+            loadingOverlay.style.display = "none"
+          }
+          resolve(e.data)
+        } else if (e.data.command === "error") {
+          this.worker.removeEventListener("message", onMessage)
+          reject(new Error(e.data.message))
+        }
+      }
+
+      this.worker.addEventListener("message", onMessage)
+
+      try {
+        if (isExport) {
+          loadingOverlay.style.display = "flex"
+          loadingBar.style.width = "100%"
+        }
+
+        if (!this.isInitialized) {
+          // Initial setup - transfer the canvas
+          const offscreen = this.canvas.transferControlToOffscreen()
+          this.worker.postMessage(
+            {
+              type: "init",
+              canvas: offscreen,
+              info,
+              keepAlive: this.keepAlive,
+            },
+            [offscreen]
+          )
+          this.isInitialized = true
+        } else {
+          // Just update the info for subsequent renders
+          this.worker.postMessage({
+            type: "update",
+            info,
+            keepAlive: this.keepAlive,
+          })
+        }
+      } catch (err) {
+        this.worker.removeEventListener("message", onMessage)
+        reject(err)
+      }
+    })
+  }
+
+  update(info) {
+    if (this.worker) {
+      this.worker.postMessage({
+        type: "update",
+        info,
+        keepAlive: this.keepAlive,
+      })
+    }
   }
 }
 
-async function drawQbist(canvas, info, oversampling = 0, keepAlive = false) {
-  return new Promise((resolve, reject) => {
-    if (typeof Worker === "undefined") {
-      reject(new Error("Web Workers are not supported in this browser"))
-      return
+// Export Management
+class QbistExporter {
+  constructor() {
+    this.exportCanvas = null
+    this.renderer = null
+  }
+
+  cleanup() {
+    if (this.renderer) {
+      this.renderer.cleanup()
+      this.renderer = null
     }
-
-    // If we already have a worker for this canvas and it's keepAlive,
-    // just send an update message instead of transferring again
-    if (canvas.worker && keepAlive) {
-      // wait for the worker to finish before resolving
-      const onRendered = (e) => {
-        if (e.data.command === "rendered") {
-          canvas.worker.removeEventListener("message", onRendered)
-          resolve()
-        }
-      }
-      canvas.worker.addEventListener("message", onRendered, { once: true })
-      canvas.worker.postMessage({ type: "update", info })
-      return
+    if (this.exportCanvas && this.exportCanvas.parentNode) {
+      document.body.removeChild(this.exportCanvas)
+      this.exportCanvas = null
     }
+  }
 
-    // Clean up any existing worker before creating a new one
-    if (canvas.worker) {
-      cleanupWorker(canvas)
-    }
-
-    // Create the worker instance
-    const worker = new Worker("workerWebGL.js", { type: "module" })
-
-    // Store worker reference on the canvas
-    canvas.worker = worker
-
+  async exportImage(info, width, height) {
     try {
-      // Create an OffscreenCanvas for WebGL rendering
-      const offscreen = canvas.transferControlToOffscreen()
+      this.cleanup()
 
-      // Listen for messages from the worker
-      worker.addEventListener(
-        "message",
-        (e) => {
-          if (e.data.command === "rendered") {
-            if (!keepAlive) {
-              cleanupWorker(canvas)
-            }
-            loadingOverlay.style.display = "none"
-            resolve()
-          }
-        },
-        { once: true }
-      )
+      this.exportCanvas = document.createElement("canvas")
+      this.exportCanvas.id = "exportCanvas"
+      this.exportCanvas.width = width
+      this.exportCanvas.height = height
+      document.body.appendChild(this.exportCanvas)
 
-      // Listen for errors in the worker
-      worker.addEventListener(
-        "error",
-        (err) => {
-          cleanupWorker(canvas)
-          loadingOverlay.style.display = "none"
-          reject(err)
-        },
-        { once: true }
-      )
+      this.renderer = new QbistRenderer(this.exportCanvas)
+      const result = await this.renderer.render(info, { isExport: true })
 
-      // Show loading overlay for exports only
-      if (canvas.id === "exportCanvas") {
-        loadingOverlay.style.display = "flex"
-        loadingBar.style.width = "100%"
+      if (result.kind === "bitmap") {
+        const link = document.createElement("a")
+        const tempCanvas = document.createElement("canvas")
+        tempCanvas.width = width
+        tempCanvas.height = height
+
+        const ctx = tempCanvas.getContext("2d")
+        ctx.drawImage(result.bitmap, 0, 0)
+
+        link.href = tempCanvas.toDataURL("image/png")
+        link.download = "qbist.png"
+        document.body.appendChild(link)
+        link.click()
+        document.body.removeChild(link)
       }
-
-      // Initialize the WebGL worker with the canvas and formula
-      worker.postMessage(
-        {
-          type: "init",
-          canvas: offscreen,
-          width: canvas.width,
-          height: canvas.height,
-          info: info,
-          keepAlive,
-        },
-        [offscreen]
-      )
-    } catch (err) {
-      cleanupWorker(canvas)
-      reject(err)
+    } finally {
+      this.cleanup()
     }
-  })
+  }
 }
 
 // --- Managing the 9-Panel Grid ---
 export const formulas = new Array(9)
 export const mainFormula = createInfo()
+const renderers = new Map()
+const exporter = new QbistExporter()
 
-// Generate variations based on the current main formula.
+// Generate variations based on the current main formula
 export function generateFormulas() {
   formulas[0] = mainFormula
   for (let i = 1; i < 9; i++) {
@@ -120,39 +177,63 @@ export function generateFormulas() {
   }
 }
 
-// Draw the large main pattern and each preview.
-export async function updateAll() {
-  const mainCanvas = document.getElementById("mainPattern")
-  const activeCanvases = []
-
-  // Start main canvas rendering with keepAlive=true since it's always visible
-  const mainPromise = drawQbist(mainCanvas, mainFormula, 1, true)
-  activeCanvases.push(mainPromise)
-
-  // Start all preview renderings with keepAlive=true
-  for (let i = 0; i < 9; i++) {
-    const canvas = document.getElementById(`preview${i}`)
-    const previewPromise = drawQbist(canvas, formulas[i], 1, true)
-    activeCanvases.push(previewPromise)
+// Initialize or get a renderer for a canvas
+function getRenderer(canvas) {
+  let renderer = renderers.get(canvas)
+  if (!renderer) {
+    renderer = new QbistRenderer(canvas)
+    renderers.set(canvas, renderer)
   }
-
-  // Update URL state after starting the renders
-  const stateToSave = {
-    ...mainFormula,
-  }
-  const url = new URL(window.location.href)
-  url.searchParams.set("state", btoa(JSON.stringify(stateToSave)))
-  window.history.pushState({}, "", url)
-
-  // Return promise that resolves when all renders complete
-  return Promise.all(activeCanvases).catch((err) => {
-    console.error("Error during render:", err)
-  })
+  return renderer
 }
 
-// On page load, check if a state is provided in the URL.
+// Draw the large main pattern and each preview
+export async function updateAll() {
+  const mainCanvas = document.getElementById("mainPattern")
+  const renderPromises = []
+
+  // Start main canvas rendering
+  renderPromises.push(
+    getRenderer(mainCanvas).render(mainFormula, { keepAlive: true })
+  )
+
+  // Start all preview renderings
+  for (let i = 0; i < 9; i++) {
+    const canvas = document.getElementById(`preview${i}`)
+    renderPromises.push(
+      getRenderer(canvas).render(formulas[i], { keepAlive: true })
+    )
+  }
+
+  // Update URL state
+  const url = new URL(window.location.href)
+  url.searchParams.set("state", btoa(JSON.stringify(mainFormula)))
+  window.history.pushState({}, "", url)
+
+  // Wait for all renders to complete
+  try {
+    await Promise.all(renderPromises)
+  } catch (err) {
+    console.error("Error during render:", err)
+  }
+}
+
+// Export functionality
+export async function downloadImage(
+  outputWidth,
+  outputHeight,
+  oversampling = 1
+) {
+  try {
+    await exporter.exportImage(mainFormula, outputWidth, outputHeight)
+  } catch (err) {
+    console.error("Error during image export:", err)
+    alert("Failed to export image. Please try again.")
+  }
+}
+
+// --- Initialization ---
 function checkURLState() {
-  // Disable default scroll restoration
   if ("scrollRestoration" in history) {
     history.scrollRestoration = "manual"
   }
@@ -166,101 +247,14 @@ function checkURLState() {
   return false
 }
 
-// --- Initialization ---
-// Check if a state is provided in the URL and load it.
+// Initialize
 if (!checkURLState()) {
   generateFormulas()
   updateAll()
 }
 
-export async function downloadImage(outputWidth, outputHeight, oversampling) {
-  const exportCanvas = document.createElement("canvas")
-  exportCanvas.id = "exportCanvas"
-  exportCanvas.width = outputWidth
-  exportCanvas.height = outputHeight
-  document.body.appendChild(exportCanvas)
-
-  loadingOverlay.style.display = "flex"
-  loadingBar.style.width = "100%"
-
-  try {
-    await new Promise((resolve, reject) => {
-      const worker = new Worker("workerWebGL.js", { type: "module" })
-      exportCanvas.worker = worker
-
-      const cleanup = () => {
-        if (exportCanvas.worker) {
-          cleanupWorker(exportCanvas)
-        }
-        if (exportCanvas.parentNode) {
-          document.body.removeChild(exportCanvas)
-        }
-        loadingOverlay.style.display = "none"
-      }
-
-      worker.addEventListener(
-        "message",
-        (e) => {
-          if (e.data.command === "rendered" && e.data.kind === "bitmap") {
-            try {
-              // Create a temporary canvas to draw the ImageBitmap
-              const tempCanvas = document.createElement("canvas")
-              tempCanvas.width = outputWidth
-              tempCanvas.height = outputHeight
-              const ctx = tempCanvas.getContext("2d")
-
-              // Draw the ImageBitmap onto the canvas
-              ctx.drawImage(e.data.bitmap, 0, 0)
-
-              // Convert to data URL and trigger download
-              const dataURL = tempCanvas.toDataURL("image/png")
-              const link = document.createElement("a")
-              link.href = dataURL
-              link.download = "qbist.png"
-              document.body.appendChild(link)
-              link.click()
-              document.body.removeChild(link)
-              resolve()
-            } catch (err) {
-              reject(err)
-            }
-          }
-        },
-        { once: true }
-      )
-
-      worker.addEventListener(
-        "error",
-        (err) => {
-          cleanup()
-          reject(err)
-        },
-        { once: true }
-      )
-
-      const offscreen = exportCanvas.transferControlToOffscreen()
-      worker.postMessage(
-        {
-          type: "init",
-          canvas: offscreen,
-          width: outputWidth,
-          height: outputHeight,
-          info: mainFormula,
-          keepAlive: false,
-        },
-        [offscreen]
-      )
-    })
-  } catch (err) {
-    console.error("Error during image export:", err)
-    alert("Failed to export image. Please try again.")
-  } finally {
-    if (exportCanvas.worker) {
-      cleanupWorker(exportCanvas)
-    }
-    if (exportCanvas.parentNode) {
-      document.body.removeChild(exportCanvas)
-    }
-    loadingOverlay.style.display = "none"
-  }
-}
+// Cleanup on page unload
+window.addEventListener("unload", () => {
+  renderers.forEach((renderer) => renderer.cleanup())
+  exporter.cleanup()
+})
