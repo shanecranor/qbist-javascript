@@ -44,6 +44,8 @@ export class QbistRenderer {
     this.keepAlive = keepAlive
 
     return new Promise((resolve, reject) => {
+      const loadingOverlay = document.getElementById("loadingOverlay")
+      const loadingBar = document.getElementById("loadingBar")
       if (!this.worker) {
         this._setupWorker()
       }
