@@ -201,6 +201,7 @@ function loadStateFromParam(stateBase64) {
 
 function render(time) {
   if (!gl || !program) return
+
   const t = time * 0.001
   gl.uniform1f(uTimeLoc, t)
 
@@ -209,7 +210,9 @@ function render(time) {
   gl.clear(gl.COLOR_BUFFER_BIT)
   gl.drawArrays(gl.TRIANGLES, 0, 6)
 
+  // For single renders, ensure the render is complete before sending message
   if (isSingleRender && !keepAlive) {
+    gl.finish() // Make sure rendering is complete
     self.postMessage({ command: "rendered", keepAlive: false })
   } else {
     self.postMessage({ command: "rendered", keepAlive: true })
