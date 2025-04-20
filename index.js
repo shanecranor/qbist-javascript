@@ -171,16 +171,22 @@ export async function downloadImage(outputWidth, outputHeight, oversampling) {
   exportCanvas.width = outputWidth
   exportCanvas.height = outputHeight
 
-  await drawQbist(exportCanvas, mainFormula, oversampling)
+  try {
+    await drawQbist(exportCanvas, mainFormula, oversampling)
+    const imageDataURL = exportCanvas.toDataURL("image/png")
 
-  const imageDataURL = exportCanvas.toDataURL("image/png")
-
-  // create a temporary download link and trigger the download
-  const link = document.createElement("a")
-  link.href = imageDataURL
-  link.download = "qbist.png"
-  //TODO: add metadata to the image so that it can be regenerated at another resolution
-  document.body.appendChild(link)
-  link.click()
-  document.body.removeChild(link)
+    // create a temporary download link and trigger the download
+    const link = document.createElement("a")
+    link.href = imageDataURL
+    link.download = "qbist.png"
+    //TODO: add metadata to the image so that it can be regenerated at another resolution
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+  } finally {
+    // Clean up the worker and canvas
+    if (exportCanvas.worker) {
+      cleanupWorker(exportCanvas)
+    }
+  }
 }
