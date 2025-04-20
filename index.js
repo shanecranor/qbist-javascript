@@ -15,8 +15,8 @@ function cleanupWorker(canvas) {
     // Send cleanup message to worker before terminating
     canvas.worker.postMessage({ type: "cleanup" })
     // Remove from transferred set
-    transferredCanvases.delete(canvas)
     delete canvas.worker
+    transferredCanvases.delete(canvas)
   }
 }
 

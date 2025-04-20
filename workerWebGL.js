@@ -119,6 +119,10 @@ function createProgram(gl, vsSource, fsSource) {
   const vertexShader = createShader(gl, gl.VERTEX_SHADER, vsSource)
   const fragmentShader = createShader(gl, gl.FRAGMENT_SHADER, fsSource)
   const program = gl.createProgram()
+  if (!program) {
+    console.error("Failed to create program")
+    return null
+  }
   gl.attachShader(program, vertexShader)
   gl.attachShader(program, fragmentShader)
   gl.linkProgram(program)
@@ -244,7 +248,6 @@ self.addEventListener("message", (event) => {
   if (event.data.type === "update") {
     mainFormula = event.data.info
     uploadFormula(mainFormula)
-    requestAnimationFrame(render)
     return
   }
 
