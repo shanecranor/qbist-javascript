@@ -80,7 +80,9 @@ const Shaders = {
     precision highp int;
     in vec2 vUV;
     uniform ivec2 uResolution;
+    #ifdef USE_ANIMATION
     uniform float uTime;
+    #endif
     uniform int uTransformSequence[36];
     uniform int uSource[36];
     uniform int uControl[36];
@@ -137,7 +139,7 @@ const Shaders = {
               r[dr] = vec3(0.5) + 0.5 * sin(20.0 * src * ctrl);
             } else if (t == 7) { // CONDITIONAL
               float sum = ctrl.x + ctrl.y + ctrl.z;
-              r[dr] = (sum > 0.5) ? src : ctrl;  // Fixed to match JavaScript implementation
+              r[dr] = (sum > 0.5) ? src : ctrl;
             } else if (t == 8) { // COMPLEMENT
               r[dr] = vec3(1.0) - src;
             }
@@ -171,7 +173,12 @@ const Renderer = {
 
   initProgram() {
     const gl = RendererState.gl
-    const program = createProgram(gl, Shaders.vertex, Shaders.fragment)
+    // Add animation define if we're going to use time-based animation
+    const defines = RendererState.renderMode.refreshEveryFrame
+      ? "#define USE_ANIMATION\n"
+      : ""
+    const fragmentSource = defines + Shaders.fragment
+    const program = createProgram(gl, Shaders.vertex, fragmentSource)
     if (!program) throw new Error("Failed to create WebGL program")
     gl.useProgram(program)
     RendererState.program = program
@@ -211,7 +218,11 @@ const Renderer = {
       "uUsedRegFlag",
     ]
 
-    const scalarUniforms = ["uResolution", "uTime"]
+    // Only include uTime in scalar uniforms if we're using animation
+    const scalarUniforms = ["uResolution"]
+    if (RendererState.renderMode.refreshEveryFrame) {
+      scalarUniforms.push("uTime")
+    }
 
     // Cache all uniform locations
     const uniforms = RendererState.uniforms
@@ -284,8 +295,11 @@ const Renderer = {
       console.log("[Render] New frame triggered by refreshEveryFrame")
     }
 
-    const t = time * 0.001
-    gl.uniform1f(uniforms.uTime, t)
+    // Only set time uniform if we're in animation mode
+    if (renderMode.refreshEveryFrame && uniforms.uTime !== null) {
+      const t = time * 0.001
+      gl.uniform1f(uniforms.uTime, t)
+    }
 
     gl.viewport(0, 0, gl.canvas.width, gl.canvas.height)
     gl.clearColor(0, 0, 0, 1)
@@ -412,5 +426,6 @@ self.addEventListener("message", (event) => {
       message: err.message || "Unknown error in worker",
     })
     Renderer.cleanup()
+    self.close()
   }
 })
