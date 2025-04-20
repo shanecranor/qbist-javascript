@@ -80,9 +80,7 @@ const Shaders = {
     precision highp int;
     in vec2 vUV;
     uniform ivec2 uResolution;
-    #ifdef USE_ANIMATION
     uniform float uTime;
-    #endif
     uniform int uTransformSequence[36];
     uniform int uSource[36];
     uniform int uControl[36];
@@ -218,11 +216,7 @@ const Renderer = {
       "uUsedRegFlag",
     ]
 
-    // Only include uTime in scalar uniforms if we're using animation
-    const scalarUniforms = ["uResolution"]
-    if (RendererState.renderMode.refreshEveryFrame) {
-      scalarUniforms.push("uTime")
-    }
+    const scalarUniforms = ["uResolution", "uTime"]
 
     // Cache all uniform locations
     const uniforms = RendererState.uniforms
