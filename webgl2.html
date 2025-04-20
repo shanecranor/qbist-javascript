@@ -55,7 +55,7 @@
       const offscreen = canvas.transferControlToOffscreen()
 
       // Create and start the worker.
-      const worker = new Worker("workerWebGL.js", { type: "module" })
+      const worker = new Worker("./workerWebGL.js", { type: "module" })
 
       // Initialize with the pattern info and animation enabled
       worker.postMessage(

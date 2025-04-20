@@ -16,7 +16,7 @@ export class QbistRenderer {
     // Cleanup existing worker if any
     this.cleanup()
 
-    this.worker = new Worker("workerWebGL.js", { type: "module" })
+    this.worker = new Worker("./workerWebGL.js", { type: "module" })
     this.worker.onerror = (err) => {
       console.error("Worker error:", err)
       this.cleanup()
