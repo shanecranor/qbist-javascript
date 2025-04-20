@@ -37,7 +37,7 @@ async function drawQbist(canvas, info, oversampling = 0, keepAlive = false) {
           resolve()
         }
       }
-      canvas.worker.addEventListener("message", onRendered)
+      canvas.worker.addEventListener("message", onRendered, { once: true })
       canvas.worker.postMessage({ type: "update", info })
       return
     }
@@ -58,22 +58,30 @@ async function drawQbist(canvas, info, oversampling = 0, keepAlive = false) {
       const offscreen = canvas.transferControlToOffscreen()
 
       // Listen for messages from the worker
-      worker.addEventListener("message", (e) => {
-        if (e.data.command === "rendered") {
-          if (!keepAlive) {
-            cleanupWorker(canvas)
+      worker.addEventListener(
+        "message",
+        (e) => {
+          if (e.data.command === "rendered") {
+            if (!keepAlive) {
+              cleanupWorker(canvas)
+            }
+            loadingOverlay.style.display = "none"
+            resolve()
           }
-          loadingOverlay.style.display = "none"
-          resolve()
-        }
-      })
+        },
+        { once: true }
+      )
 
       // Listen for errors in the worker
-      worker.addEventListener("error", (err) => {
-        cleanupWorker(canvas)
-        loadingOverlay.style.display = "none"
-        reject(err)
-      })
+      worker.addEventListener(
+        "error",
+        (err) => {
+          cleanupWorker(canvas)
+          loadingOverlay.style.display = "none"
+          reject(err)
+        },
+        { once: true }
+      )
 
       // Show loading overlay for exports only
       if (canvas.id === "exportCanvas") {
@@ -190,37 +198,45 @@ export async function downloadImage(outputWidth, outputHeight, oversampling) {
         loadingOverlay.style.display = "none"
       }
 
-      worker.addEventListener("message", (e) => {
-        if (e.data.command === "rendered" && e.data.kind === "bitmap") {
-          try {
-            // Create a temporary canvas to draw the ImageBitmap
-            const tempCanvas = document.createElement("canvas")
-            tempCanvas.width = outputWidth
-            tempCanvas.height = outputHeight
-            const ctx = tempCanvas.getContext("2d")
+      worker.addEventListener(
+        "message",
+        (e) => {
+          if (e.data.command === "rendered" && e.data.kind === "bitmap") {
+            try {
+              // Create a temporary canvas to draw the ImageBitmap
+              const tempCanvas = document.createElement("canvas")
+              tempCanvas.width = outputWidth
+              tempCanvas.height = outputHeight
+              const ctx = tempCanvas.getContext("2d")
 
-            // Draw the ImageBitmap onto the canvas
-            ctx.drawImage(e.data.bitmap, 0, 0)
+              // Draw the ImageBitmap onto the canvas
+              ctx.drawImage(e.data.bitmap, 0, 0)
 
-            // Convert to data URL and trigger download
-            const dataURL = tempCanvas.toDataURL("image/png")
-            const link = document.createElement("a")
-            link.href = dataURL
-            link.download = "qbist.png"
-            document.body.appendChild(link)
-            link.click()
-            document.body.removeChild(link)
-            resolve()
-          } catch (err) {
-            reject(err)
+              // Convert to data URL and trigger download
+              const dataURL = tempCanvas.toDataURL("image/png")
+              const link = document.createElement("a")
+              link.href = dataURL
+              link.download = "qbist.png"
+              document.body.appendChild(link)
+              link.click()
+              document.body.removeChild(link)
+              resolve()
+            } catch (err) {
+              reject(err)
+            }
           }
-        }
-      })
+        },
+        { once: true }
+      )
 
-      worker.addEventListener("error", (err) => {
-        cleanup()
-        reject(err)
-      })
+      worker.addEventListener(
+        "error",
+        (err) => {
+          cleanup()
+          reject(err)
+        },
+        { once: true }
+      )
 
       const offscreen = exportCanvas.transferControlToOffscreen()
       worker.postMessage(
