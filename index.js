@@ -41,7 +41,7 @@ export async function updateAll() {
   renderPromises.push(
     getRenderer(mainCanvas).render(mainFormula, {
       keepAlive: true,
-      refreshEveryFrame: true,
+      refreshEveryFrame: false,
     })
   )
 
