@@ -214,24 +214,32 @@ function render(time) {
   if (isSingleRender && !keepAlive) {
     gl.finish() // Make sure rendering is complete
 
-    // Read pixels directly from WebGL context
-    const width = gl.canvas.width
-    const height = gl.canvas.height
-    const pixels = new Uint8Array(width * height * 4)
-    gl.readPixels(0, 0, width, height, gl.RGBA, gl.UNSIGNED_BYTE, pixels)
+    // Read pixels and handle potential WebGL errors
+    try {
+      const width = gl.canvas.width
+      const height = gl.canvas.height
+      const pixels = new Uint8Array(width * height * 4)
+      gl.readPixels(0, 0, width, height, gl.RGBA, gl.UNSIGNED_BYTE, pixels)
 
-    // Send the pixel data directly
-    self.postMessage(
-      {
-        command: "rendered",
-        keepAlive: false,
-        kind: "pixels",
-        width,
-        height,
-        pixels: pixels.buffer,
-      },
-      [pixels.buffer]
-    )
+      // Send the pixel data directly
+      self.postMessage(
+        {
+          command: "rendered",
+          keepAlive: false,
+          kind: "pixels",
+          width,
+          height,
+          pixels: pixels.buffer,
+        },
+        [pixels.buffer]
+      )
+    } catch (err) {
+      console.error("Error reading pixels:", err)
+      self.postMessage({
+        command: "error",
+        message: "Failed to read pixels from WebGL context",
+      })
+    }
   } else {
     self.postMessage({ command: "rendered", keepAlive: true })
     requestAnimationFrame(render)
@@ -245,87 +253,111 @@ function cleanupWebGL() {
     // Delete shaders attached to the program
     const shaders = gl.getAttachedShaders(program)
     if (shaders) {
-      shaders.forEach((shader) => gl.deleteShader(shader))
+      shaders.forEach((shader) => {
+        gl.deleteShader(shader)
+      })
     }
     gl.deleteProgram(program)
   }
-  if (vao) gl.deleteVertexArray(vao)
-  if (positionBuffer) gl.deleteBuffer(positionBuffer)
+  if (vao) {
+    gl.deleteVertexArray(vao)
+  }
+  if (positionBuffer) {
+    gl.deleteBuffer(positionBuffer)
+  }
   // Reset all references
   gl = null
   program = null
   vao = null
   positionBuffer = null
+  mainFormula = null
 }
 
 // Message handler
 self.addEventListener("message", (event) => {
-  if (event.data.type === "cleanup") {
-    cleanupWebGL()
-    self.close()
-    return
-  }
+  try {
+    if (event.data.type === "cleanup") {
+      cleanupWebGL()
+      self.close()
+      return
+    }
 
-  if (event.data.type === "update") {
-    mainFormula = event.data.info
+    if (event.data.type === "update") {
+      mainFormula = event.data.info
+      uploadFormula(mainFormula)
+      return
+    }
+
+    if (!event.data.canvas) {
+      throw new Error("No canvas provided in the message.")
+    }
+
+    const canvas = event.data.canvas
+    gl = canvas.getContext("webgl2", {
+      antialias: true,
+      preserveDrawingBuffer: true, // Important for reading pixels
+    })
+
+    if (!gl) {
+      throw new Error("WebGL2 is not available in this worker.")
+    }
+
+    // Initialize WebGL
+    program = createProgram(gl, vertexShaderSource, fragmentShaderSource)
+    if (!program) {
+      throw new Error("Failed to create WebGL program")
+    }
+
+    gl.useProgram(program)
+
+    // Set up quad geometry
+    const quadVertices = new Float32Array([
+      -1, -1, 1, -1, -1, 1, -1, 1, 1, -1, 1, 1,
+    ])
+    vao = gl.createVertexArray()
+    gl.bindVertexArray(vao)
+    positionBuffer = gl.createBuffer()
+    gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer)
+    gl.bufferData(gl.ARRAY_BUFFER, quadVertices, gl.STATIC_DRAW)
+    const posLoc = gl.getAttribLocation(program, "aPosition")
+    gl.enableVertexAttribArray(posLoc)
+    gl.vertexAttribPointer(posLoc, 2, gl.FLOAT, false, 0, 0)
+
+    // Get uniform locations
+    uResolutionLoc = gl.getUniformLocation(program, "uResolution")
+    uTimeLoc = gl.getUniformLocation(program, "uTime")
+    uTransformSequenceLoc = gl.getUniformLocation(program, "uTransformSequence")
+    uSourceLoc = gl.getUniformLocation(program, "uSource")
+    uControlLoc = gl.getUniformLocation(program, "uControl")
+    uDestLoc = gl.getUniformLocation(program, "uDest")
+    uUsedTransFlagLoc = gl.getUniformLocation(program, "uUsedTransFlag")
+    uUsedRegFlagLoc = gl.getUniformLocation(program, "uUsedRegFlag")
+
+    gl.uniform2i(uResolutionLoc, canvas.width, canvas.height)
+
+    // Initialize formula
+    isSingleRender = event.data.type === "init" && event.data.info
+    keepAlive = event.data.keepAlive
+
+    if (isSingleRender) {
+      mainFormula = event.data.info
+    } else if (event.data.type === "init" && event.data.b64state) {
+      mainFormula = loadStateFromParam(event.data.b64state)
+      if (!mainFormula) {
+        throw new Error("Failed to load state from parameter")
+      }
+    } else {
+      mainFormula = createInfo()
+    }
+
     uploadFormula(mainFormula)
-    return
+    requestAnimationFrame(render)
+  } catch (err) {
+    console.error("Error in worker:", err)
+    self.postMessage({
+      command: "error",
+      message: err.message || "Unknown error in worker",
+    })
+    cleanupWebGL()
   }
-
-  if (!event.data.canvas) {
-    console.error("No canvas provided in the message.")
-    return
-  }
-
-  const canvas = event.data.canvas
-  gl = canvas.getContext("webgl2", { antialias: true })
-  if (!gl) {
-    console.error("WebGL2 is not available in this worker.")
-    return
-  }
-
-  // Initialize WebGL
-  program = createProgram(gl, vertexShaderSource, fragmentShaderSource)
-  gl.useProgram(program)
-
-  // Set up quad geometry
-  const quadVertices = new Float32Array([
-    -1, -1, 1, -1, -1, 1, -1, 1, 1, -1, 1, 1,
-  ])
-  vao = gl.createVertexArray()
-  gl.bindVertexArray(vao)
-  positionBuffer = gl.createBuffer()
-  gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer)
-  gl.bufferData(gl.ARRAY_BUFFER, quadVertices, gl.STATIC_DRAW)
-  const posLoc = gl.getAttribLocation(program, "aPosition")
-  gl.enableVertexAttribArray(posLoc)
-  gl.vertexAttribPointer(posLoc, 2, gl.FLOAT, false, 0, 0)
-
-  // Get uniform locations
-  uResolutionLoc = gl.getUniformLocation(program, "uResolution")
-  uTimeLoc = gl.getUniformLocation(program, "uTime")
-  uTransformSequenceLoc = gl.getUniformLocation(program, "uTransformSequence")
-  uSourceLoc = gl.getUniformLocation(program, "uSource")
-  uControlLoc = gl.getUniformLocation(program, "uControl")
-  uDestLoc = gl.getUniformLocation(program, "uDest")
-  uUsedTransFlagLoc = gl.getUniformLocation(program, "uUsedTransFlag")
-  uUsedRegFlagLoc = gl.getUniformLocation(program, "uUsedRegFlag")
-
-  gl.uniform2i(uResolutionLoc, canvas.width, canvas.height)
-
-  // Initialize formula
-  isSingleRender = event.data.type === "init" && event.data.info
-  keepAlive = event.data.keepAlive
-
-  if (isSingleRender) {
-    mainFormula = event.data.info
-  } else if (event.data.type === "init" && event.data.b64state) {
-    mainFormula = loadStateFromParam(event.data.b64state)
-    if (!mainFormula) return
-  } else {
-    mainFormula = createInfo()
-  }
-
-  uploadFormula(mainFormula)
-  requestAnimationFrame(render)
 })

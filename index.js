@@ -172,49 +172,69 @@ export async function downloadImage(outputWidth, outputHeight, oversampling) {
   exportCanvas.height = outputHeight
   document.body.appendChild(exportCanvas)
 
+  loadingOverlay.style.display = "flex"
+  loadingBar.style.width = "100%"
+
   try {
     await new Promise((resolve, reject) => {
       const worker = new Worker("workerWebGL.js", { type: "module" })
       exportCanvas.worker = worker
 
+      const cleanup = () => {
+        if (exportCanvas.worker) {
+          cleanupWorker(exportCanvas)
+        }
+        if (exportCanvas.parentNode) {
+          document.body.removeChild(exportCanvas)
+        }
+        loadingOverlay.style.display = "none"
+      }
+
       worker.addEventListener("message", (e) => {
         if (e.data.command === "rendered" && e.data.kind === "pixels") {
-          // Create a temporary canvas to handle the pixel data
-          const tempCanvas = document.createElement("canvas")
-          tempCanvas.width = e.data.width
-          tempCanvas.height = e.data.height
-          const ctx = tempCanvas.getContext("2d")
+          try {
+            // Create a temporary canvas to handle the pixel data
+            const tempCanvas = document.createElement("canvas")
+            tempCanvas.width = e.data.width
+            tempCanvas.height = e.data.height
+            const ctx = tempCanvas.getContext("2d")
 
-          // Create ImageData from the received pixels
-          const pixels = new Uint8ClampedArray(e.data.pixels)
-          const imageData = new ImageData(pixels, e.data.width, e.data.height)
+            // Create ImageData from the received pixels
+            const pixels = new Uint8ClampedArray(e.data.pixels)
+            const imageData = new ImageData(pixels, e.data.width, e.data.height)
 
-          // Need to flip the image vertically since WebGL uses different coordinate system
-          const flipCanvas = document.createElement("canvas")
-          flipCanvas.width = e.data.width
-          flipCanvas.height = e.data.height
-          const flipCtx = flipCanvas.getContext("2d")
-          flipCtx.putImageData(imageData, 0, 0)
+            // Need to flip the image vertically since WebGL uses different coordinate system
+            const flipCanvas = document.createElement("canvas")
+            flipCanvas.width = e.data.width
+            flipCanvas.height = e.data.height
+            const flipCtx = flipCanvas.getContext("2d")
+            flipCtx.putImageData(imageData, 0, 0)
 
-          // Draw flipped image
-          ctx.save()
-          ctx.scale(1, -1)
-          ctx.drawImage(flipCanvas, 0, -e.data.height)
-          ctx.restore()
+            // Draw flipped image
+            ctx.save()
+            ctx.scale(1, -1)
+            ctx.drawImage(flipCanvas, 0, -e.data.height)
+            ctx.restore()
 
-          // Convert to data URL and trigger download
-          const dataURL = tempCanvas.toDataURL("image/png")
-          const link = document.createElement("a")
-          link.href = dataURL
-          link.download = "qbist.png"
-          document.body.appendChild(link)
-          link.click()
-          document.body.removeChild(link)
-          resolve()
+            // Convert to data URL and trigger download
+            const dataURL = tempCanvas.toDataURL("image/png")
+            const link = document.createElement("a")
+            link.href = dataURL
+            link.download = "qbist.png"
+            document.body.appendChild(link)
+            link.click()
+            document.body.removeChild(link)
+            resolve()
+          } catch (err) {
+            reject(err)
+          }
         }
       })
 
-      worker.addEventListener("error", reject)
+      worker.addEventListener("error", (err) => {
+        cleanup()
+        reject(err)
+      })
 
       const offscreen = exportCanvas.transferControlToOffscreen()
       worker.postMessage(
@@ -229,10 +249,16 @@ export async function downloadImage(outputWidth, outputHeight, oversampling) {
         [offscreen]
       )
     })
+  } catch (err) {
+    console.error("Error during image export:", err)
+    alert("Failed to export image. Please try again.")
   } finally {
     if (exportCanvas.worker) {
       cleanupWorker(exportCanvas)
     }
-    document.body.removeChild(exportCanvas)
+    if (exportCanvas.parentNode) {
+      document.body.removeChild(exportCanvas)
+    }
+    loadingOverlay.style.display = "none"
   }
 }
