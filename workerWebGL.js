@@ -202,10 +202,35 @@ const Renderer = {
     const gl = RendererState.gl
     const program = RendererState.program
 
+    const arrayUniforms = [
+      "uTransformSequence",
+      "uSource",
+      "uControl",
+      "uDest",
+      "uUsedTransFlag",
+      "uUsedRegFlag",
+    ]
+
+    const scalarUniforms = ["uResolution", "uTime"]
+
     // Cache all uniform locations
     const uniforms = RendererState.uniforms
-    Object.keys(uniforms).forEach((name) => {
+
+    // Initialize array uniforms with [0] suffix for compatibility
+    arrayUniforms.forEach((name) => {
+      uniforms[name] = gl.getUniformLocation(program, `${name}[0]`)
+    })
+
+    // Initialize scalar uniforms
+    scalarUniforms.forEach((name) => {
       uniforms[name] = gl.getUniformLocation(program, name)
+    })
+
+    // Validate uniform locations to catch any lookup failures
+    Object.entries(uniforms).forEach(([name, location]) => {
+      if (location === null) {
+        console.error(`Failed to get uniform location for ${name}`)
+      }
     })
   },
 
