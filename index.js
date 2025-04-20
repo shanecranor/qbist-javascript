@@ -41,7 +41,11 @@ class QbistRenderer {
   }
 
   async render(info, options = {}) {
-    const { keepAlive = false, isExport = false } = options
+    const {
+      keepAlive = false,
+      refreshEveryFrame = false,
+      isExport = false,
+    } = options
     this.keepAlive = keepAlive
 
     return new Promise((resolve, reject) => {
@@ -81,6 +85,7 @@ class QbistRenderer {
               canvas: offscreen,
               info,
               keepAlive: this.keepAlive,
+              refreshEveryFrame,
             },
             [offscreen]
           )
@@ -91,6 +96,7 @@ class QbistRenderer {
             type: "update",
             info,
             keepAlive: this.keepAlive,
+            refreshEveryFrame,
           })
         }
       } catch (err) {
@@ -192,16 +198,22 @@ export async function updateAll() {
   const mainCanvas = document.getElementById("mainPattern")
   const renderPromises = []
 
-  // Start main canvas rendering
+  // Start main canvas rendering - keep alive and refresh every frame for animation
   renderPromises.push(
-    getRenderer(mainCanvas).render(mainFormula, { keepAlive: true })
+    getRenderer(mainCanvas).render(mainFormula, {
+      keepAlive: true,
+      refreshEveryFrame: true,
+    })
   )
 
-  // Start all preview renderings
+  // Start all preview renderings - no keepAlive or refreshEveryFrame needed
   for (let i = 0; i < 9; i++) {
     const canvas = document.getElementById(`preview${i}`)
     renderPromises.push(
-      getRenderer(canvas).render(formulas[i], { keepAlive: true })
+      getRenderer(canvas).render(formulas[i], {
+        keepAlive: false,
+        refreshEveryFrame: false,
+      })
     )
   }
 

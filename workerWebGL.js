@@ -58,8 +58,11 @@ const RendererState = {
   renderMode: {
     type: "interactive", // 'interactive', 'export', or 'animation'
     keepAlive: false,
+    refreshEveryFrame: false,
   },
   formula: null,
+  lastRenderTime: 0, // Track last render time
+  needsRender: true, // Track if render is needed
 }
 
 // Shader sources
@@ -209,6 +212,8 @@ const Renderer = {
     const gl = RendererState.gl
     if (!gl || !RendererState.program) return
 
+    console.log("[Shader Update] Uploading new formula to shaders")
+
     const { usedTransFlag, usedRegFlag } = optimize(formula)
     const uniforms = RendererState.uniforms
 
@@ -227,11 +232,31 @@ const Renderer = {
       uniforms.uUsedRegFlag,
       new Int32Array(usedRegFlag.map((f) => (f ? 1 : 0)))
     )
+
+    // Mark that we need a new render
+    RendererState.needsRender = true
+    console.log("[Shader Update] Formula uploaded successfully")
   },
 
   render(time) {
     const { gl, uniforms, renderMode } = RendererState
     if (!gl || !RendererState.program) return
+
+    // Only render if:
+    // 1. We need to render (due to an update)
+    // 2. Or if refreshEveryFrame is enabled
+    if (!RendererState.needsRender && !renderMode.refreshEveryFrame) {
+      if (renderMode.keepAlive) {
+        requestAnimationFrame((t) => this.render(t))
+      }
+      return
+    }
+
+    if (RendererState.needsRender) {
+      console.log("[Render] New frame triggered by formula update")
+    } else if (renderMode.refreshEveryFrame) {
+      console.log("[Render] New frame triggered by refreshEveryFrame")
+    }
 
     const t = time * 0.001
     gl.uniform1f(uniforms.uTime, t)
@@ -240,6 +265,8 @@ const Renderer = {
     gl.clearColor(0, 0, 0, 1)
     gl.clear(gl.COLOR_BUFFER_BIT)
     gl.drawArrays(gl.TRIANGLES, 0, 6)
+
+    RendererState.needsRender = false
 
     if (renderMode.type === "export") {
       this.handleExport()
@@ -282,7 +309,7 @@ const Renderer = {
     })
 
     if (RendererState.renderMode.keepAlive) {
-      requestAnimationFrame((time) => Renderer.render(time))
+      requestAnimationFrame((t) => this.render(t))
     }
   },
 
@@ -311,7 +338,7 @@ const Renderer = {
 // Message handling
 self.addEventListener("message", (event) => {
   try {
-    const { type, canvas, info, keepAlive } = event.data
+    const { type, canvas, info, keepAlive, refreshEveryFrame } = event.data
 
     if (type === "cleanup") {
       Renderer.cleanup()
@@ -321,11 +348,10 @@ self.addEventListener("message", (event) => {
 
     if (type === "update") {
       RendererState.formula = info
+      RendererState.renderMode.refreshEveryFrame = refreshEveryFrame
       Renderer.uploadFormula(info)
-      // After update, trigger a new render frame if we're in continuous mode
-      if (RendererState.renderMode.keepAlive) {
-        requestAnimationFrame((time) => Renderer.render(time))
-      }
+      // Trigger a new render
+      requestAnimationFrame((time) => Renderer.render(time))
       return
     }
 
@@ -337,6 +363,7 @@ self.addEventListener("message", (event) => {
       RendererState.renderMode = {
         type: info ? "export" : "interactive",
         keepAlive: keepAlive || false,
+        refreshEveryFrame: refreshEveryFrame || false,
       }
 
       const gl = RendererState.gl
