@@ -170,26 +170,66 @@ export async function downloadImage(outputWidth, outputHeight, oversampling) {
   exportCanvas.id = "exportCanvas"
   exportCanvas.width = outputWidth
   exportCanvas.height = outputHeight
-  // exportCanvas.style.display = "none"
-  document.body.appendChild(exportCanvas) // Temporarily add to DOM
+  document.body.appendChild(exportCanvas)
 
   try {
-    await drawQbist(exportCanvas, mainFormula, oversampling)
+    await new Promise((resolve, reject) => {
+      const worker = new Worker("workerWebGL.js", { type: "module" })
+      exportCanvas.worker = worker
 
-    // Small delay to ensure WebGL has finished
-    await new Promise((resolve) => setTimeout(resolve, 100))
+      worker.addEventListener("message", (e) => {
+        if (e.data.command === "rendered" && e.data.kind === "pixels") {
+          // Create a temporary canvas to handle the pixel data
+          const tempCanvas = document.createElement("canvas")
+          tempCanvas.width = e.data.width
+          tempCanvas.height = e.data.height
+          const ctx = tempCanvas.getContext("2d")
 
-    const imageDataURL = exportCanvas.toDataURL("image/png")
+          // Create ImageData from the received pixels
+          const pixels = new Uint8ClampedArray(e.data.pixels)
+          const imageData = new ImageData(pixels, e.data.width, e.data.height)
 
-    // Create and trigger download
-    const link = document.createElement("a")
-    link.href = imageDataURL
-    link.download = "qbist.png"
-    document.body.appendChild(link)
-    link.click()
-    document.body.removeChild(link)
+          // Need to flip the image vertically since WebGL uses different coordinate system
+          const flipCanvas = document.createElement("canvas")
+          flipCanvas.width = e.data.width
+          flipCanvas.height = e.data.height
+          const flipCtx = flipCanvas.getContext("2d")
+          flipCtx.putImageData(imageData, 0, 0)
+
+          // Draw flipped image
+          ctx.save()
+          ctx.scale(1, -1)
+          ctx.drawImage(flipCanvas, 0, -e.data.height)
+          ctx.restore()
+
+          // Convert to data URL and trigger download
+          const dataURL = tempCanvas.toDataURL("image/png")
+          const link = document.createElement("a")
+          link.href = dataURL
+          link.download = "qbist.png"
+          document.body.appendChild(link)
+          link.click()
+          document.body.removeChild(link)
+          resolve()
+        }
+      })
+
+      worker.addEventListener("error", reject)
+
+      const offscreen = exportCanvas.transferControlToOffscreen()
+      worker.postMessage(
+        {
+          type: "init",
+          canvas: offscreen,
+          width: outputWidth,
+          height: outputHeight,
+          info: mainFormula,
+          keepAlive: false,
+        },
+        [offscreen]
+      )
+    })
   } finally {
-    // Clean up
     if (exportCanvas.worker) {
       cleanupWorker(exportCanvas)
     }

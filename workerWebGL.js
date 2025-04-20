@@ -213,7 +213,25 @@ function render(time) {
   // For single renders, ensure the render is complete before sending message
   if (isSingleRender && !keepAlive) {
     gl.finish() // Make sure rendering is complete
-    self.postMessage({ command: "rendered", keepAlive: false })
+
+    // Read pixels directly from WebGL context
+    const width = gl.canvas.width
+    const height = gl.canvas.height
+    const pixels = new Uint8Array(width * height * 4)
+    gl.readPixels(0, 0, width, height, gl.RGBA, gl.UNSIGNED_BYTE, pixels)
+
+    // Send the pixel data directly
+    self.postMessage(
+      {
+        command: "rendered",
+        keepAlive: false,
+        kind: "pixels",
+        width,
+        height,
+        pixels: pixels.buffer,
+      },
+      [pixels.buffer]
+    )
   } else {
     self.postMessage({ command: "rendered", keepAlive: true })
     requestAnimationFrame(render)
