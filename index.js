@@ -26,27 +26,23 @@ function drawQbist(canvas, info, oversampling = 0) {
       reject(new Error("Web Workers are not supported in this browser"))
       return
     }
+    const isExport = canvas.id === "exportCanvas"
+    const keepAlive = !isExport
 
-    // Run optimize function
-    const { usedTransFlag, usedRegFlag } = optimize(info)
-    const optimizedInfo = {
-      ...info,
-      usedTransFlag,
-      usedRegFlag,
+    // If we already have a worker for this canvas and it's keepAlive,
+    // just send an update message instead of transferring again
+    if (canvas.worker && keepAlive) {
+      canvas.worker.postMessage({
+        type: "update",
+        info,
+      })
+      resolve()
+      return
     }
 
-    // Clean up existing worker if canvas was already transferred
-    if (transferredCanvases.has(canvas)) {
+    // Clean up any existing worker before creating a new one
+    if (canvas.worker) {
       cleanupWorker(canvas)
-
-      // Create a new canvas to replace the transferred one
-      const newCanvas = document.createElement("canvas")
-      newCanvas.width = canvas.width
-      newCanvas.height = canvas.height
-      newCanvas.id = canvas.id
-      newCanvas.className = canvas.className
-      canvas.parentNode.replaceChild(newCanvas, canvas)
-      canvas = newCanvas
     }
 
     // Create the worker instance
@@ -55,59 +51,50 @@ function drawQbist(canvas, info, oversampling = 0) {
     // Store worker reference on the canvas
     canvas.worker = worker
 
-    // Create an OffscreenCanvas for WebGL rendering
-    const offscreen = canvas.transferControlToOffscreen()
+    try {
+      // Create an OffscreenCanvas for WebGL rendering
+      const offscreen = canvas.transferControlToOffscreen()
 
-    // Mark this canvas as transferred
-    transferredCanvases.add(canvas)
-
-    // Set up mutation observer to detect if canvas is removed from DOM
-    const observer = new MutationObserver((mutations) => {
-      if (!document.contains(canvas)) {
-        cleanupWorker(canvas)
-        observer.disconnect()
-      }
-    })
-    observer.observe(document.body, { childList: true, subtree: true })
-
-    // Listen for messages from the worker
-    worker.addEventListener("message", (e) => {
-      if (e.data.command === "rendered") {
-        if (!e.data.keepAlive) {
-          cleanupWorker(canvas)
-          observer.disconnect()
+      // Listen for messages from the worker
+      worker.addEventListener("message", (e) => {
+        if (e.data.command === "rendered") {
+          if (!keepAlive) {
+            cleanupWorker(canvas)
+          }
+          loadingOverlay.style.display = "none"
+          resolve()
         }
+      })
+
+      // Listen for errors in the worker
+      worker.addEventListener("error", (err) => {
+        cleanupWorker(canvas)
         loadingOverlay.style.display = "none"
-        resolve()
+        reject(err)
+      })
+
+      // Show loading overlay for exports only
+      if (isExport) {
+        loadingOverlay.style.display = "flex"
+        loadingBar.style.width = "100%"
       }
-    })
 
-    // Listen for errors in the worker
-    worker.addEventListener("error", (err) => {
+      // Initialize the WebGL worker with the canvas and formula
+      worker.postMessage(
+        {
+          type: "init",
+          canvas: offscreen,
+          width: canvas.width,
+          height: canvas.height,
+          info: optimizedInfo,
+          keepAlive,
+        },
+        [offscreen]
+      )
+    } catch (err) {
       cleanupWorker(canvas)
-      observer.disconnect()
-      loadingOverlay.style.display = "none"
       reject(err)
-    })
-
-    // Show loading overlay for the exported canvas only
-    if (canvas.id === "exportCanvas") {
-      loadingOverlay.style.display = "flex"
-      loadingBar.style.width = "100%"
     }
-
-    // Initialize the WebGL worker with the canvas and formula
-    worker.postMessage(
-      {
-        type: "init",
-        canvas: offscreen,
-        width: canvas.width,
-        height: canvas.height,
-        info: optimizedInfo,
-        keepAlive: canvas.id !== "exportCanvas", // Only keep alive for non-export canvases
-      },
-      [offscreen]
-    )
   })
 }
 
