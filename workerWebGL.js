@@ -104,7 +104,7 @@ const Shaders = {
           vec3 r[NUM_REGISTERS];
           for (int i = 0; i < NUM_REGISTERS; i++) {
             if (uUsedRegFlag[i] == 1) {
-              r[i] = vec3(subPixelPos.x, subPixelPos.y, float(i) / float(NUM_REGISTERS));
+              r[i] = vec3(subPixelPos.x, subPixelPos.y, float(i) / float(NUM_REGISTERS)) + vec3(0.0, 0.0, uTime);
             } else {
               r[i] = vec3(0.0);
             }
@@ -247,6 +247,14 @@ const Renderer = {
 
     const { usedTransFlag, usedRegFlag } = optimize(formula)
     const uniforms = RendererState.uniforms
+
+    // Initialize uTime with 0 when not in animation mode
+    if (
+      !RendererState.renderMode.refreshEveryFrame &&
+      uniforms.uTime !== null
+    ) {
+      gl.uniform1f(uniforms.uTime, 0.0)
+    }
 
     gl.uniform1iv(
       uniforms.uTransformSequence,
