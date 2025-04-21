@@ -156,6 +156,9 @@ const Renderer = {
     const gl = canvas.getContext("webgl2", {
       antialias: true,
       preserveDrawingBuffer: true,
+      alpha: false, // Disable alpha for better compatibility
+      powerPreference: "high-performance",
+      failIfMajorPerformanceCaveat: false
     })
 
     if (!gl) throw new Error("WebGL2 not available")
@@ -221,22 +224,29 @@ const Renderer = {
     // Cache all uniform locations
     const uniforms = RendererState.uniforms
 
-    // Initialize array uniforms with [0] suffix for compatibility
+    // Initialize array uniforms, handling potential browser differences
     arrayUniforms.forEach((name) => {
-      uniforms[name] = gl.getUniformLocation(program, `${name}[0]`)
+      // Try both with and without [0] suffix
+      uniforms[name] = gl.getUniformLocation(program, `${name}[0]`) || 
+                      gl.getUniformLocation(program, name)
+      
+      if (uniforms[name] === null) {
+        console.error(`Failed to get uniform location for ${name}`)
+      }
     })
 
     // Initialize scalar uniforms
     scalarUniforms.forEach((name) => {
       uniforms[name] = gl.getUniformLocation(program, name)
-    })
-
-    // Validate uniform locations to catch any lookup failures
-    Object.entries(uniforms).forEach(([name, location]) => {
-      if (location === null) {
+      if (uniforms[name] === null) {
         console.error(`Failed to get uniform location for ${name}`)
       }
     })
+
+    // Set initial values for uniforms that need them
+    if (uniforms.uTime !== null) {
+      gl.uniform1f(uniforms.uTime, 0.0)
+    }
   },
 
   uploadFormula(formula) {
@@ -325,23 +335,52 @@ const Renderer = {
     gl.finish()
 
     try {
-      const bitmap = gl.canvas.transferToImageBitmap()
-      self.postMessage(
-        {
-          command: "rendered",
-          keepAlive: false,
-          kind: "bitmap",
-          bitmap,
-        },
-        [bitmap]
-      )
+      // Try using ImageBitmap first
+      if (typeof createImageBitmap === 'function') {
+        gl.canvas.convertToBlob().then(blob => {
+          createImageBitmap(blob).then(bitmap => {
+            self.postMessage(
+              {
+                command: "rendered",
+                keepAlive: false,
+                kind: "bitmap",
+                bitmap,
+              },
+              [bitmap]
+            )
+          }).catch(err => {
+            console.error("Error creating ImageBitmap:", err);
+            this.fallbackExport(gl);
+          });
+        });
+      } else {
+        // Fallback for browsers without ImageBitmap support
+        this.fallbackExport(gl);
+      }
     } catch (err) {
-      console.error("Error transferring to ImageBitmap:", err)
+      console.error("Error in export:", err)
       self.postMessage({
         command: "error",
-        message: "Failed to transfer canvas to ImageBitmap",
+        message: "Failed to export canvas content",
       })
     }
+  },
+
+  fallbackExport(gl) {
+    // Read pixels directly and send as array buffer
+    const width = gl.canvas.width;
+    const height = gl.canvas.height;
+    const pixels = new Uint8Array(width * height * 4);
+    gl.readPixels(0, 0, width, height, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+    
+    self.postMessage({
+      command: "rendered",
+      keepAlive: false,
+      kind: "pixels",
+      pixels: pixels.buffer,
+      width,
+      height
+    }, [pixels.buffer]);
   },
 
   handleContinuousRender(time) {

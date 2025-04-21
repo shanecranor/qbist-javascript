@@ -16,7 +16,9 @@ export class QbistRenderer {
     // Cleanup existing worker if any
     this.cleanup()
 
-    this.worker = new Worker("./workerWebGL.js", { type: "module" })
+    // Use absolute path for better cross-browser compatibility with module workers
+    const workerURL = new URL("./workerWebGL.js", window.location.href).href
+    this.worker = new Worker(workerURL, { type: "module" })
     this.worker.onerror = (err) => {
       console.error("Worker error:", err)
       this.cleanup()
@@ -75,17 +77,27 @@ export class QbistRenderer {
         }
 
         if (!this.isInitialized) {
-          // Initial setup - transfer the canvas
-          const offscreen = this.canvas.transferControlToOffscreen()
+          let canvas = this.canvas;
+          let transferList = [];
+          
+          // Try to use OffscreenCanvas
+          try {
+            const offscreen = this.canvas.transferControlToOffscreen()
+            canvas = offscreen;
+            transferList = [offscreen];
+          } catch (err) {
+            console.warn('OffscreenCanvas not supported, falling back to regular canvas', err);
+          }
+
           this.worker.postMessage(
             {
               type: "init",
-              canvas: offscreen,
+              canvas: canvas,
               info,
               keepAlive: this.keepAlive,
               refreshEveryFrame,
             },
-            [offscreen]
+            transferList
           )
           this.isInitialized = true
         } else {
