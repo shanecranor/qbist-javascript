@@ -62,18 +62,30 @@ export function loadStateFromParam(stateBase64) {
   }
 }
 
+// Listen for URL state changes (back/forward navigation)
+window.addEventListener("popstate", (event) => {
+  const url = new URL(window.location.href)
+  const state = url.searchParams.get("state")
+  if (state) {
+    loadStateFromParam(state)
+  }
+})
+
 // --- GIMP Format Import/Export Functions ---
 function exportToGimp() {
   const buffer = exportToGimpFormat(mainFormula)
   const blob = new Blob([buffer], { type: "application/octet-stream" })
   const url = URL.createObjectURL(blob)
   const link = document.createElement("a")
-  link.href = url
-  link.download = "pattern.qbe"
-  document.body.appendChild(link)
-  link.click()
-  document.body.removeChild(link)
-  URL.revokeObjectURL(url)
+  try {
+    link.href = url
+    link.download = "pattern.qbe"
+    document.body.appendChild(link)
+    link.click()
+  } finally {
+    document.body.removeChild(link)
+    URL.revokeObjectURL(url)
+  }
 }
 
 function importFromGimp() {
@@ -103,14 +115,15 @@ function importFromGimp() {
   input.click()
 }
 
-// when a preview is clicked, use its formula as the new main pattern
-document.querySelectorAll(".preview").forEach((canvas) => {
-  canvas.addEventListener("click", () => {
+// Use event delegation for preview clicks since canvases get recreated
+document.getElementById("grid").addEventListener("click", (event) => {
+  const canvas = event.target.closest(".preview")
+  if (canvas) {
     const index = parseInt(canvas.id.replace("preview", ""))
     Object.assign(mainFormula, formulas[index])
     generateFormulas()
     updateAll()
-  })
+  }
 })
 
 // button event listeners

@@ -1,32 +1,81 @@
-// worker.js
-import { optimize } from "/qbist.js"
+// WebGL Worker for Qbist rendering
+import { optimize } from "./qbist.js"
 
-// Global variables and context
-let gl = null
-let program = null
-let mainFormula = null
-let uResolutionLoc,
-  uTimeLoc,
-  uTransformSequenceLoc,
-  uSourceLoc,
-  uControlLoc,
-  uDestLoc,
-  uUsedTransFlagLoc,
-  uUsedRegFlagLoc
-let isSingleRender = false
-let keepAlive = false
+// WebGL Utility Functions
+function createShader(gl, type, source) {
+  const shader = gl.createShader(type)
+  gl.shaderSource(shader, source)
+  gl.compileShader(shader)
+  if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+    console.error("Shader compile error:", gl.getShaderInfoLog(shader))
+    gl.deleteShader(shader)
+    return null
+  }
+  return shader
+}
+
+function createProgram(gl, vertexSource, fragmentSource) {
+  const vertexShader = createShader(gl, gl.VERTEX_SHADER, vertexSource)
+  const fragmentShader = createShader(gl, gl.FRAGMENT_SHADER, fragmentSource)
+
+  if (!vertexShader || !fragmentShader) return null
+
+  const program = gl.createProgram()
+  if (!program) {
+    console.error("Failed to create program")
+    return null
+  }
+
+  gl.attachShader(program, vertexShader)
+  gl.attachShader(program, fragmentShader)
+  gl.linkProgram(program)
+
+  if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+    console.error("Program link error:", gl.getProgramInfoLog(program))
+    gl.deleteProgram(program)
+    return null
+  }
+
+  return program
+}
+
+// Renderer state management
+const RendererState = {
+  gl: null,
+  program: null,
+  vao: null,
+  positionBuffer: null,
+  uniforms: {
+    uResolution: null,
+    uTime: null,
+    uTransformSequence: null,
+    uSource: null,
+    uControl: null,
+    uDest: null,
+    uUsedTransFlag: null,
+    uUsedRegFlag: null,
+  },
+  renderMode: {
+    type: "interactive", // 'interactive', 'export', or 'animation'
+    keepAlive: false,
+    refreshEveryFrame: false,
+  },
+  formula: null,
+  lastRenderTime: 0, // Track last render time
+  needsRender: true, // Track if render is needed
+}
 
 // Shader sources
-const vertexShaderSource = `#version 300 es
+const Shaders = {
+  vertex: `#version 300 es
     in vec2 aPosition;
     out vec2 vUV;
     void main() {
-      // Keep Y coordinate inverted in UVs to match JavaScript coordinate system
       vUV = vec2(aPosition.x + 1.0, -aPosition.y + 1.0) * 0.5;
       gl_Position = vec4(aPosition, 0.0, 1.0);
-    }`
+    }`,
 
-const fragmentShaderSource = `#version 300 es
+  fragment: `#version 300 es
     precision highp float;
     precision highp int;
     in vec2 vUV;
@@ -55,7 +104,7 @@ const fragmentShaderSource = `#version 300 es
           vec3 r[NUM_REGISTERS];
           for (int i = 0; i < NUM_REGISTERS; i++) {
             if (uUsedRegFlag[i] == 1) {
-              r[i] = vec3(subPixelPos.x, subPixelPos.y, float(i) / float(NUM_REGISTERS));
+              r[i] = vec3(subPixelPos.x, subPixelPos.y, float(i) / float(NUM_REGISTERS)) + vec3(0.0, 0.0, uTime);
             } else {
               r[i] = vec3(0.0);
             }
@@ -88,7 +137,7 @@ const fragmentShaderSource = `#version 300 es
               r[dr] = vec3(0.5) + 0.5 * sin(20.0 * src * ctrl);
             } else if (t == 7) { // CONDITIONAL
               float sum = ctrl.x + ctrl.y + ctrl.z;
-              r[dr] = (sum > 0.5) ? src : ctrl;  // Fixed to match JavaScript implementation
+              r[dr] = (sum > 0.5) ? src : ctrl;
             } else if (t == 8) { // COMPLEMENT
               r[dr] = vec3(1.0) - src;
             }
@@ -98,182 +147,332 @@ const fragmentShaderSource = `#version 300 es
       }
       vec3 color = accum / float(OVERSAMPLING * OVERSAMPLING);
       outColor = vec4(color, 1.0);
-    }`
-
-// WebGL setup functions
-function createShader(gl, type, source) {
-  const shader = gl.createShader(type)
-  gl.shaderSource(shader, source)
-  gl.compileShader(shader)
-  if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
-    console.error("Shader compile error:", gl.getShaderInfoLog(shader))
-    gl.deleteShader(shader)
-    return null
-  }
-  return shader
+    }`,
 }
 
-function createProgram(gl, vsSource, fsSource) {
-  const vertexShader = createShader(gl, gl.VERTEX_SHADER, vsSource)
-  const fragmentShader = createShader(gl, gl.FRAGMENT_SHADER, fsSource)
-  const program = gl.createProgram()
-  gl.attachShader(program, vertexShader)
-  gl.attachShader(program, fragmentShader)
-  gl.linkProgram(program)
-  if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
-    console.error("Program link error:", gl.getProgramInfoLog(program))
-    gl.deleteProgram(program)
-    return null
-  }
-  return program
-}
+// Renderer setup and management
+const Renderer = {
+  init(canvas) {
+    const gl = canvas.getContext("webgl2", {
+      antialias: true,
+      preserveDrawingBuffer: true,
+      alpha: false, // Disable alpha for better compatibility
+      powerPreference: "high-performance",
+      failIfMajorPerformanceCaveat: false,
+    })
 
-// Formula generation functions
-function randomInt(min, max) {
-  return Math.floor(Math.random() * (max - min)) + min
-}
+    if (!gl) throw new Error("WebGL2 not available")
+    console.log("[WebGL Canvas Create] Initialized WebGL2 context")
 
-function createInfo() {
-  const info = {
-    transformSequence: [],
-    source: [],
-    control: [],
-    dest: [],
-  }
-  for (let k = 0; k < 36; k++) {
-    info.transformSequence.push(randomInt(0, 9))
-    info.source.push(randomInt(0, 6))
-    info.control.push(randomInt(0, 6))
-    info.dest.push(randomInt(0, 6))
-  }
-  return info
-}
+    RendererState.gl = gl
+    this.initProgram()
+    this.initGeometry()
+    this.initUniforms()
 
-function uploadFormula(formula) {
-  if (!gl || !program) return
-  // Run optimization before uploading
-  const { usedTransFlag, usedRegFlag } = optimize(formula)
+    return gl
+  },
 
-  gl.uniform1iv(
-    uTransformSequenceLoc,
-    new Int32Array(formula.transformSequence)
-  )
-  gl.uniform1iv(uSourceLoc, new Int32Array(formula.source))
-  gl.uniform1iv(uControlLoc, new Int32Array(formula.control))
-  gl.uniform1iv(uDestLoc, new Int32Array(formula.dest))
-  gl.uniform1iv(
-    uUsedTransFlagLoc,
-    new Int32Array(usedTransFlag.map((flag) => (flag ? 1 : 0)))
-  )
-  gl.uniform1iv(
-    uUsedRegFlagLoc,
-    new Int32Array(usedRegFlag.map((flag) => (flag ? 1 : 0)))
-  )
-}
+  initProgram() {
+    const gl = RendererState.gl
+    // Add animation define if we're going to use time-based animation
+    const defines = RendererState.renderMode.refreshEveryFrame
+      ? "#define USE_ANIMATION\n"
+      : ""
+    const fragmentSource = defines + Shaders.fragment
+    const program = createProgram(gl, Shaders.vertex, fragmentSource)
+    if (!program) throw new Error("Failed to create WebGL program")
+    gl.useProgram(program)
+    RendererState.program = program
+  },
 
-function loadStateFromParam(stateBase64) {
-  try {
-    const stateJSON = atob(stateBase64)
-    const stateObj = JSON.parse(stateJSON)
-    if (
-      stateObj.transformSequence &&
-      stateObj.source &&
-      stateObj.control &&
-      stateObj.dest
-    ) {
-      return {
-        ...stateObj,
+  initGeometry() {
+    const gl = RendererState.gl
+    const quadVertices = new Float32Array([
+      -1, -1, 1, -1, -1, 1, -1, 1, 1, -1, 1, 1,
+    ])
+
+    const vao = gl.createVertexArray()
+    gl.bindVertexArray(vao)
+
+    const positionBuffer = gl.createBuffer()
+    gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer)
+    gl.bufferData(gl.ARRAY_BUFFER, quadVertices, gl.STATIC_DRAW)
+
+    const posLoc = gl.getAttribLocation(RendererState.program, "aPosition")
+    gl.enableVertexAttribArray(posLoc)
+    gl.vertexAttribPointer(posLoc, 2, gl.FLOAT, false, 0, 0)
+
+    RendererState.vao = vao
+    RendererState.positionBuffer = positionBuffer
+  },
+
+  initUniforms() {
+    const gl = RendererState.gl
+    const program = RendererState.program
+
+    const arrayUniforms = [
+      "uTransformSequence",
+      "uSource",
+      "uControl",
+      "uDest",
+      "uUsedTransFlag",
+      "uUsedRegFlag",
+    ]
+
+    const scalarUniforms = ["uResolution", "uTime"]
+
+    // Cache all uniform locations
+    const uniforms = RendererState.uniforms
+
+    // Initialize array uniforms, handling potential browser differences
+    arrayUniforms.forEach((name) => {
+      // Try both with and without [0] suffix
+      uniforms[name] =
+        gl.getUniformLocation(program, `${name}[0]`) ||
+        gl.getUniformLocation(program, name)
+
+      if (uniforms[name] === null) {
+        console.error(`Failed to get uniform location for ${name}`)
       }
+    })
+
+    // Initialize scalar uniforms
+    scalarUniforms.forEach((name) => {
+      uniforms[name] = gl.getUniformLocation(program, name)
+      if (uniforms[name] === null) {
+        console.error(`Failed to get uniform location for ${name}`)
+      }
+    })
+
+    // Set initial values for uniforms that need them
+    if (uniforms.uTime !== null) {
+      gl.uniform1f(uniforms.uTime, 0.0)
     }
-    console.error("Invalid pattern state")
-    return null
-  } catch (e) {
-    console.error("Error loading state:", e)
-    return null
-  }
+  },
+
+  uploadFormula(formula) {
+    const gl = RendererState.gl
+    if (!gl || !RendererState.program) return
+
+    console.log("[Shader Update] Uploading new formula to shaders")
+
+    const { usedTransFlag, usedRegFlag } = optimize(formula)
+    const uniforms = RendererState.uniforms
+
+    // Initialize uTime with 0 when not in animation mode
+    if (
+      !RendererState.renderMode.refreshEveryFrame &&
+      uniforms.uTime !== null
+    ) {
+      gl.uniform1f(uniforms.uTime, 0.0)
+    }
+
+    gl.uniform1iv(
+      uniforms.uTransformSequence,
+      new Int32Array(formula.transformSequence)
+    )
+    gl.uniform1iv(uniforms.uSource, new Int32Array(formula.source))
+    gl.uniform1iv(uniforms.uControl, new Int32Array(formula.control))
+    gl.uniform1iv(uniforms.uDest, new Int32Array(formula.dest))
+    gl.uniform1iv(
+      uniforms.uUsedTransFlag,
+      new Int32Array(usedTransFlag.map((f) => (f ? 1 : 0)))
+    )
+    gl.uniform1iv(
+      uniforms.uUsedRegFlag,
+      new Int32Array(usedRegFlag.map((f) => (f ? 1 : 0)))
+    )
+
+    // Mark that we need a new render
+    RendererState.needsRender = true
+    console.log("[Shader Update] Formula uploaded successfully")
+  },
+
+  render(time) {
+    const { gl, uniforms, renderMode } = RendererState
+    if (!gl || !RendererState.program) return
+
+    // Only render if:
+    // 1. We need to render (due to an update)
+    // 2. Or if refreshEveryFrame is enabled
+    if (!RendererState.needsRender && !renderMode.refreshEveryFrame) {
+      if (renderMode.keepAlive) {
+        requestAnimationFrame((t) => this.render(t))
+      }
+      return
+    }
+
+    if (RendererState.needsRender) {
+      console.log("[Render] New frame triggered by formula update")
+    } else if (renderMode.refreshEveryFrame) {
+      console.log("[Render] New frame triggered by refreshEveryFrame")
+    }
+
+    // Only set time uniform if we're in animation mode
+    if (renderMode.refreshEveryFrame && uniforms.uTime !== null) {
+      const t = time * 0.001
+      gl.uniform1f(uniforms.uTime, t)
+    }
+
+    gl.viewport(0, 0, gl.canvas.width, gl.canvas.height)
+    gl.clearColor(0, 0, 0, 1)
+    gl.clear(gl.COLOR_BUFFER_BIT)
+    gl.drawArrays(gl.TRIANGLES, 0, 6)
+
+    RendererState.needsRender = false
+
+    if (renderMode.type === "export") {
+      this.handleExport()
+    } else if (
+      renderMode.type === "interactive" ||
+      renderMode.type === "animation"
+    ) {
+      this.handleContinuousRender(time)
+    }
+  },
+
+  handleExport() {
+    const gl = RendererState.gl
+    gl.finish()
+
+    try {
+      // Try using ImageBitmap first
+      if (typeof createImageBitmap === "function") {
+        gl.canvas.convertToBlob().then((blob) => {
+          createImageBitmap(blob)
+            .then((bitmap) => {
+              self.postMessage(
+                {
+                  command: "rendered",
+                  keepAlive: false,
+                  kind: "bitmap",
+                  bitmap,
+                },
+                [bitmap]
+              )
+            })
+            .catch((err) => {
+              console.error("Error creating ImageBitmap:", err)
+              this.fallbackExport(gl)
+            })
+        })
+      } else {
+        // Fallback for browsers without ImageBitmap support
+        this.fallbackExport(gl)
+      }
+    } catch (err) {
+      console.error("Error in export:", err)
+      self.postMessage({
+        command: "error",
+        message: "Failed to export canvas content",
+      })
+    }
+  },
+
+  fallbackExport(gl) {
+    // Read pixels directly and send as array buffer
+    const width = gl.canvas.width
+    const height = gl.canvas.height
+    const pixels = new Uint8Array(width * height * 4)
+    gl.readPixels(0, 0, width, height, gl.RGBA, gl.UNSIGNED_BYTE, pixels)
+
+    self.postMessage(
+      {
+        command: "rendered",
+        keepAlive: false,
+        kind: "pixels",
+        pixels: pixels.buffer,
+        width,
+        height,
+      },
+      [pixels.buffer]
+    )
+  },
+
+  handleContinuousRender(time) {
+    self.postMessage({
+      command: "rendered",
+      keepAlive: RendererState.renderMode.keepAlive,
+    })
+
+    if (RendererState.renderMode.keepAlive) {
+      requestAnimationFrame((t) => this.render(t))
+    }
+  },
+
+  cleanup() {
+    const { gl, program, vao, positionBuffer } = RendererState
+
+    if (!gl) return
+
+    console.log("[WebGL Canvas Delete] Cleaning up WebGL context and resources")
+
+    if (program) {
+      const shaders = gl.getAttachedShaders(program)
+      if (shaders) {
+        shaders.forEach((shader) => gl.deleteShader(shader))
+      }
+      gl.deleteProgram(program)
+    }
+
+    if (vao) gl.deleteVertexArray(vao)
+    if (positionBuffer) gl.deleteBuffer(positionBuffer)
+
+    Object.keys(RendererState).forEach((key) => {
+      RendererState[key] = null
+    })
+  },
 }
 
-function render(time) {
-  if (!gl || !program) return
-  const t = time * 0.001
-  gl.uniform1f(uTimeLoc, t)
-
-  gl.viewport(0, 0, gl.canvas.width, gl.canvas.height)
-  gl.clearColor(0, 0, 0, 1)
-  gl.clear(gl.COLOR_BUFFER_BIT)
-  gl.drawArrays(gl.TRIANGLES, 0, 6)
-
-  if (isSingleRender && !keepAlive) {
-    self.postMessage({ command: "rendered", keepAlive: false })
-  } else {
-    self.postMessage({ command: "rendered", keepAlive: true })
-    requestAnimationFrame(render)
-  }
-}
-
-// Message handler
+// Message handling
 self.addEventListener("message", (event) => {
-  if (event.data.type === "update") {
-    mainFormula = event.data.info
-    uploadFormula(mainFormula)
-    requestAnimationFrame(render)
-    return
+  try {
+    const { type, canvas, info, keepAlive, refreshEveryFrame } = event.data
+
+    if (type === "cleanup") {
+      Renderer.cleanup()
+      self.close()
+      return
+    }
+
+    if (type === "update") {
+      RendererState.formula = info
+      RendererState.renderMode.refreshEveryFrame = refreshEveryFrame
+      Renderer.uploadFormula(info)
+      // Trigger a new render
+      requestAnimationFrame((time) => Renderer.render(time))
+      return
+    }
+
+    // Initialize new render context
+    if (type === "init") {
+      if (!canvas) throw new Error("No canvas provided")
+
+      Renderer.init(canvas)
+      RendererState.renderMode = {
+        type: info ? "export" : "interactive",
+        keepAlive: keepAlive || false,
+        refreshEveryFrame: refreshEveryFrame || false,
+      }
+
+      const gl = RendererState.gl
+      gl.uniform2i(
+        RendererState.uniforms.uResolution,
+        canvas.width,
+        canvas.height
+      )
+
+      RendererState.formula = info
+      Renderer.uploadFormula(info)
+      requestAnimationFrame((time) => Renderer.render(time))
+    }
+  } catch (err) {
+    console.error("Error in worker:", err)
+    self.postMessage({
+      command: "error",
+      message: err.message || "Unknown error in worker",
+    })
+    Renderer.cleanup()
+    self.close()
   }
-
-  if (!event.data.canvas) {
-    console.error("No canvas provided in the message.")
-    return
-  }
-
-  const canvas = event.data.canvas
-  gl = canvas.getContext("webgl2", { antialias: true })
-  if (!gl) {
-    console.error("WebGL2 is not available in this worker.")
-    return
-  }
-
-  // Initialize WebGL
-  program = createProgram(gl, vertexShaderSource, fragmentShaderSource)
-  gl.useProgram(program)
-
-  // Set up quad geometry
-  const quadVertices = new Float32Array([
-    -1, -1, 1, -1, -1, 1, -1, 1, 1, -1, 1, 1,
-  ])
-  const vao = gl.createVertexArray()
-  gl.bindVertexArray(vao)
-  const positionBuffer = gl.createBuffer()
-  gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer)
-  gl.bufferData(gl.ARRAY_BUFFER, quadVertices, gl.STATIC_DRAW)
-  const posLoc = gl.getAttribLocation(program, "aPosition")
-  gl.enableVertexAttribArray(posLoc)
-  gl.vertexAttribPointer(posLoc, 2, gl.FLOAT, false, 0, 0)
-
-  // Get uniform locations
-  uResolutionLoc = gl.getUniformLocation(program, "uResolution")
-  uTimeLoc = gl.getUniformLocation(program, "uTime")
-  uTransformSequenceLoc = gl.getUniformLocation(program, "uTransformSequence")
-  uSourceLoc = gl.getUniformLocation(program, "uSource")
-  uControlLoc = gl.getUniformLocation(program, "uControl")
-  uDestLoc = gl.getUniformLocation(program, "uDest")
-  uUsedTransFlagLoc = gl.getUniformLocation(program, "uUsedTransFlag")
-  uUsedRegFlagLoc = gl.getUniformLocation(program, "uUsedRegFlag")
-
-  gl.uniform2i(uResolutionLoc, canvas.width, canvas.height)
-
-  // Initialize formula
-  isSingleRender = event.data.type === "init" && event.data.info
-  keepAlive = event.data.keepAlive
-
-  if (isSingleRender) {
-    mainFormula = event.data.info
-  } else if (event.data.type === "init" && event.data.b64state) {
-    mainFormula = loadStateFromParam(event.data.b64state)
-    if (!mainFormula) return
-  } else {
-    mainFormula = createInfo()
-  }
-
-  uploadFormula(mainFormula)
-  requestAnimationFrame(render)
 })

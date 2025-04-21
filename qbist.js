@@ -242,7 +242,13 @@ export function importFromGimpFormat(buffer) {
     control: [],
     dest: [],
   }
-
+  if (buffer.byteLength !== MAX_TRANSFORMS * 2 * 4) {
+    throw new RangeError(
+      `Expected ${MAX_TRANSFORMS * 2 * 4} byte GIMP Qbist buffer, got ${
+        buffer.byteLength
+      }`
+    )
+  }
   // Read each array as 16-bit big-endian integers
   for (let i = 0; i < MAX_TRANSFORMS; i++) {
     // transformSequence (first 72 bytes)
