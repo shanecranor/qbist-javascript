@@ -77,16 +77,19 @@ export class QbistRenderer {
         }
 
         if (!this.isInitialized) {
-          let canvas = this.canvas;
-          let transferList = [];
-          
+          let canvas = this.canvas
+          let transferList = []
+
           // Try to use OffscreenCanvas
           try {
             const offscreen = this.canvas.transferControlToOffscreen()
-            canvas = offscreen;
-            transferList = [offscreen];
+            canvas = offscreen
+            transferList = [offscreen]
           } catch (err) {
-            console.warn('OffscreenCanvas not supported, falling back to regular canvas', err);
+            console.warn(
+              "OffscreenCanvas not supported, falling back to regular canvas",
+              err
+            )
           }
 
           this.worker.postMessage(

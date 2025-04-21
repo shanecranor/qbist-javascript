@@ -63,20 +63,20 @@ export class QbistExporter {
       width,
       height
     )
-    
+
     // Need to flip the image vertically since WebGL reads pixels from bottom-left
     const flippedCanvas = document.createElement("canvas")
     flippedCanvas.width = width
     flippedCanvas.height = height
     const flippedCtx = flippedCanvas.getContext("2d")
-    
+
     // Put the pixels on the temporary canvas
     ctx.putImageData(imageData, 0, 0)
-    
+
     // Flip the image by drawing it upside down
     flippedCtx.scale(1, -1)
     flippedCtx.drawImage(tempCanvas, 0, -height)
-    
+
     const link = document.createElement("a")
     link.href = flippedCanvas.toDataURL("image/png")
     link.download = "qbist.png"

@@ -158,7 +158,7 @@ const Renderer = {
       preserveDrawingBuffer: true,
       alpha: false, // Disable alpha for better compatibility
       powerPreference: "high-performance",
-      failIfMajorPerformanceCaveat: false
+      failIfMajorPerformanceCaveat: false,
     })
 
     if (!gl) throw new Error("WebGL2 not available")
@@ -227,9 +227,10 @@ const Renderer = {
     // Initialize array uniforms, handling potential browser differences
     arrayUniforms.forEach((name) => {
       // Try both with and without [0] suffix
-      uniforms[name] = gl.getUniformLocation(program, `${name}[0]`) || 
-                      gl.getUniformLocation(program, name)
-      
+      uniforms[name] =
+        gl.getUniformLocation(program, `${name}[0]`) ||
+        gl.getUniformLocation(program, name)
+
       if (uniforms[name] === null) {
         console.error(`Failed to get uniform location for ${name}`)
       }
@@ -336,26 +337,28 @@ const Renderer = {
 
     try {
       // Try using ImageBitmap first
-      if (typeof createImageBitmap === 'function') {
-        gl.canvas.convertToBlob().then(blob => {
-          createImageBitmap(blob).then(bitmap => {
-            self.postMessage(
-              {
-                command: "rendered",
-                keepAlive: false,
-                kind: "bitmap",
-                bitmap,
-              },
-              [bitmap]
-            )
-          }).catch(err => {
-            console.error("Error creating ImageBitmap:", err);
-            this.fallbackExport(gl);
-          });
-        });
+      if (typeof createImageBitmap === "function") {
+        gl.canvas.convertToBlob().then((blob) => {
+          createImageBitmap(blob)
+            .then((bitmap) => {
+              self.postMessage(
+                {
+                  command: "rendered",
+                  keepAlive: false,
+                  kind: "bitmap",
+                  bitmap,
+                },
+                [bitmap]
+              )
+            })
+            .catch((err) => {
+              console.error("Error creating ImageBitmap:", err)
+              this.fallbackExport(gl)
+            })
+        })
       } else {
         // Fallback for browsers without ImageBitmap support
-        this.fallbackExport(gl);
+        this.fallbackExport(gl)
       }
     } catch (err) {
       console.error("Error in export:", err)
@@ -368,19 +371,22 @@ const Renderer = {
 
   fallbackExport(gl) {
     // Read pixels directly and send as array buffer
-    const width = gl.canvas.width;
-    const height = gl.canvas.height;
-    const pixels = new Uint8Array(width * height * 4);
-    gl.readPixels(0, 0, width, height, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
-    
-    self.postMessage({
-      command: "rendered",
-      keepAlive: false,
-      kind: "pixels",
-      pixels: pixels.buffer,
-      width,
-      height
-    }, [pixels.buffer]);
+    const width = gl.canvas.width
+    const height = gl.canvas.height
+    const pixels = new Uint8Array(width * height * 4)
+    gl.readPixels(0, 0, width, height, gl.RGBA, gl.UNSIGNED_BYTE, pixels)
+
+    self.postMessage(
+      {
+        command: "rendered",
+        keepAlive: false,
+        kind: "pixels",
+        pixels: pixels.buffer,
+        width,
+        height,
+      },
+      [pixels.buffer]
+    )
   },
 
   handleContinuousRender(time) {
