@@ -58,7 +58,6 @@ const RendererState = {
   renderMode: {
     type: "interactive", // 'interactive', 'export', or 'animation'
     keepAlive: false,
-    refreshEveryFrame: false,
   },
   formula: null,
   lastRenderTime: 0, // Track last render time
@@ -104,7 +103,7 @@ const Shaders = {
           vec3 r[NUM_REGISTERS];
           for (int i = 0; i < NUM_REGISTERS; i++) {
             if (uUsedRegFlag[i] == 1) {
-              r[i] = vec3(subPixelPos.x, subPixelPos.y, float(i) / float(NUM_REGISTERS)) + vec3(0.0, 0.0, uTime);
+              r[i] = vec3(subPixelPos.x, subPixelPos.y, float(i) / float(NUM_REGISTERS)) + vec3(0.0, uTime,0.0);
             } else {
               r[i] = vec3(0.0);
             }
@@ -176,12 +175,7 @@ const Renderer = {
 
   initProgram() {
     const gl = RendererState.gl
-    // Add animation define if we're going to use time-based animation
-    const defines = RendererState.renderMode.refreshEveryFrame
-      ? "#define USE_ANIMATION\n"
-      : ""
-    const fragmentSource = defines + Shaders.fragment
-    const program = createProgram(gl, Shaders.vertex, fragmentSource)
+    const program = createProgram(gl, Shaders.vertex, Shaders.fragment)
     if (!program) throw new Error("Failed to create WebGL program")
     gl.useProgram(program)
     RendererState.program = program
@@ -261,14 +255,6 @@ const Renderer = {
     const { usedTransFlag, usedRegFlag } = optimize(formula)
     const uniforms = RendererState.uniforms
 
-    // Initialize uTime with 0 when not in animation mode
-    if (
-      !RendererState.renderMode.refreshEveryFrame &&
-      uniforms.uTime !== null
-    ) {
-      gl.uniform1f(uniforms.uTime, 0.0)
-    }
-
     gl.uniform1iv(
       uniforms.uTransformSequence,
       new Int32Array(formula.transformSequence)
@@ -294,40 +280,25 @@ const Renderer = {
     const { gl, uniforms, renderMode } = RendererState
     if (!gl || !RendererState.program) return
 
-    // Only render if:
-    // 1. We need to render (due to an update)
-    // 2. Or if refreshEveryFrame is enabled
-    if (!RendererState.needsRender && !renderMode.refreshEveryFrame) {
-      if (renderMode.keepAlive) {
-        requestAnimationFrame((t) => this.render(t))
-      }
-      return
-    }
-
-    // Only set time uniform if we're in animation mode
-    if (renderMode.refreshEveryFrame && uniforms.uTime !== null) {
+    // Update time uniform
+    if (uniforms.uTime !== null) {
       const t = time * 0.001
       gl.uniform1f(uniforms.uTime, t)
     }
 
     gl.viewport(0, 0, gl.canvas.width, gl.canvas.height)
 
-    // Only clear if this is a formula update or initial render
-    if (RendererState.needsRender) {
-      gl.clearColor(0, 0, 0, 1)
-      gl.clear(gl.COLOR_BUFFER_BIT)
-    }
-
+    // Draw frame
     gl.drawArrays(gl.TRIANGLES, 0, 6)
 
-    RendererState.needsRender = false
+    // Continue animation if keepAlive is true
+    if (renderMode.keepAlive) {
+      requestAnimationFrame((t) => this.render(t))
+    }
 
     if (renderMode.type === "export") {
       this.handleExport()
-    } else if (
-      renderMode.type === "interactive" ||
-      renderMode.type === "animation"
-    ) {
+    } else {
       this.handleContinuousRender(time)
     }
   },
@@ -428,7 +399,7 @@ const Renderer = {
 // Message handling
 self.addEventListener("message", (event) => {
   try {
-    const { type, canvas, info, keepAlive, refreshEveryFrame } = event.data
+    const { type, canvas, info, keepAlive } = event.data
 
     if (type === "cleanup") {
       Renderer.cleanup()
@@ -456,7 +427,6 @@ self.addEventListener("message", (event) => {
       // Only update pattern if info is provided
       if (info) {
         RendererState.formula = info
-        RendererState.renderMode.refreshEveryFrame = refreshEveryFrame
         Renderer.uploadFormula(info)
         RendererState.needsRender = true
       }
@@ -473,7 +443,6 @@ self.addEventListener("message", (event) => {
       RendererState.renderMode = {
         type: info ? "export" : "interactive",
         keepAlive: keepAlive || false,
-        refreshEveryFrame: refreshEveryFrame || false,
       }
 
       const gl = RendererState.gl
