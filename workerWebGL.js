@@ -62,6 +62,10 @@ const RendererState = {
   formula: null,
   lastRenderTime: 0, // Track last render time
   needsRender: true, // Track if render is needed
+  // FPS tracking
+  frameCount: 0,
+  lastFpsUpdate: 0,
+  fpsUpdateInterval: 500, // Update FPS display every 500ms
 }
 
 // Shader sources
@@ -102,15 +106,15 @@ const Shaders = {
           
           vec3 r[NUM_REGISTERS];
           for (int i = 0; i < NUM_REGISTERS; i++) {
-            if (uUsedRegFlag[i] == 1) {
-              r[i] = vec3(subPixelPos.x, subPixelPos.y, float(i) / float(NUM_REGISTERS)) + vec3(0.0, uTime,0.0);
-            } else {
-              r[i] = vec3(0.0);
-            }
+             if (uUsedRegFlag[i] == 1) {
+                r[i] = vec3(subPixelPos.x, subPixelPos.y, float(i) / float(NUM_REGISTERS)) + vec3(0.0, 0.0,uTime/ 10.0);
+             } else {
+               r[i] = vec3(0.0);
+             }
           }
           
           for (int i = 0; i < MAX_TRANSFORMS; i++) {
-            if (uUsedTransFlag[i] != 1) continue;
+             if (uUsedTransFlag[i] != 1) continue;
             int t = uTransformSequence[i];
             int sr = uSource[i];
             int cr = uControl[i];
@@ -291,15 +295,34 @@ const Renderer = {
     // Draw frame
     gl.drawArrays(gl.TRIANGLES, 0, 6)
 
+    // Calculate FPS
+    RendererState.frameCount++
+    const now = performance.now()
+    if (now - RendererState.lastFpsUpdate >= RendererState.fpsUpdateInterval) {
+      const fps =
+        (RendererState.frameCount * 1000) / (now - RendererState.lastFpsUpdate)
+      self.postMessage({
+        command: "fps",
+        fps: fps,
+      })
+      RendererState.frameCount = 0
+      RendererState.lastFpsUpdate = now
+    }
+
+    // Handle export if needed
+    if (renderMode.type === "export") {
+      this.handleExport()
+    }
+
+    // Send rendered message
+    self.postMessage({
+      command: "rendered",
+      keepAlive: renderMode.keepAlive,
+    })
+
     // Continue animation if keepAlive is true
     if (renderMode.keepAlive) {
       requestAnimationFrame((t) => this.render(t))
-    }
-
-    if (renderMode.type === "export") {
-      this.handleExport()
-    } else {
-      this.handleContinuousRender(time)
     }
   },
 
@@ -359,17 +382,6 @@ const Renderer = {
       },
       [pixels.buffer]
     )
-  },
-
-  handleContinuousRender(time) {
-    self.postMessage({
-      command: "rendered",
-      keepAlive: RendererState.renderMode.keepAlive,
-    })
-
-    if (RendererState.renderMode.keepAlive) {
-      requestAnimationFrame((t) => this.render(t))
-    }
   },
 
   cleanup() {

@@ -17,10 +17,21 @@
         width: 100vw;
         height: 100vh;
       }
+      #fps {
+        position: fixed;
+        top: 10px;
+        right: 10px;
+        background: rgba(0, 0, 0, 0.5);
+        color: white;
+        padding: 5px 10px;
+        border-radius: 4px;
+        font-family: monospace;
+      }
     </style>
   </head>
   <body>
     <canvas id="canvas"></canvas>
+    <div id="fps">FPS: --</div>
     <script type="module">
       import { createInfo } from "./qbist.js"
 
@@ -45,12 +56,22 @@
       }
 
       const canvas = document.getElementById("canvas")
+      const fpsDisplay = document.getElementById("fps")
 
       // Transfer control to an OffscreenCanvas.
       const offscreen = canvas.transferControlToOffscreen()
 
       // Create and start the worker.
       const worker = new Worker("./workerWebGL.js", { type: "module" })
+
+      // Handle messages from worker including FPS updates
+      worker.onmessage = (e) => {
+        if (e.data.command === "fps") {
+          console.log("FP2S:", e.data.fps)
+          fpsDisplay.textContent = `FPS: ${e.data.fps.toFixed(1)}`
+        }
+        // Handle any other messages normally
+      }
 
       // Initialize with the pattern info and animation enabled
       worker.postMessage(
