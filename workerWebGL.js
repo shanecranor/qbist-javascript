@@ -155,10 +155,12 @@ const Renderer = {
   init(canvas) {
     const gl = canvas.getContext("webgl2", {
       antialias: true,
-      preserveDrawingBuffer: true,
-      alpha: false, // Disable alpha for better compatibility
+      preserveDrawingBuffer: true, // Ensure content is preserved between frames
+      alpha: false, // Disable alpha for better performance
       powerPreference: "high-performance",
       failIfMajorPerformanceCaveat: false,
+      depth: false, // We don't need depth testing
+      stencil: false, // We don't need stencil buffer
     })
 
     if (!gl) throw new Error("WebGL2 not available")
@@ -302,12 +304,6 @@ const Renderer = {
       return
     }
 
-    if (RendererState.needsRender) {
-      console.log("[Render] New frame triggered by formula update")
-    } else if (renderMode.refreshEveryFrame) {
-      console.log("[Render] New frame triggered by refreshEveryFrame")
-    }
-
     // Only set time uniform if we're in animation mode
     if (renderMode.refreshEveryFrame && uniforms.uTime !== null) {
       const t = time * 0.001
@@ -315,8 +311,13 @@ const Renderer = {
     }
 
     gl.viewport(0, 0, gl.canvas.width, gl.canvas.height)
-    gl.clearColor(0, 0, 0, 1)
-    gl.clear(gl.COLOR_BUFFER_BIT)
+
+    // Only clear if this is a formula update or initial render
+    if (RendererState.needsRender) {
+      gl.clearColor(0, 0, 0, 1)
+      gl.clear(gl.COLOR_BUFFER_BIT)
+    }
+
     gl.drawArrays(gl.TRIANGLES, 0, 6)
 
     RendererState.needsRender = false
@@ -436,10 +437,30 @@ self.addEventListener("message", (event) => {
     }
 
     if (type === "update") {
-      RendererState.formula = info
-      RendererState.renderMode.refreshEveryFrame = refreshEveryFrame
-      Renderer.uploadFormula(info)
-      // Trigger a new render
+      // Handle resize without re-uploading pattern
+      if (event.data.width !== undefined && event.data.height !== undefined) {
+        const gl = RendererState.gl
+        gl.canvas.width = event.data.width
+        gl.canvas.height = event.data.height
+        gl.uniform2i(
+          RendererState.uniforms.uResolution,
+          event.data.width,
+          event.data.height
+        )
+        // Immediate redraw without clearing
+        gl.viewport(0, 0, gl.canvas.width, gl.canvas.height)
+        gl.drawArrays(gl.TRIANGLES, 0, 6)
+        return
+      }
+
+      // Only update pattern if info is provided
+      if (info) {
+        RendererState.formula = info
+        RendererState.renderMode.refreshEveryFrame = refreshEveryFrame
+        Renderer.uploadFormula(info)
+        RendererState.needsRender = true
+      }
+
       requestAnimationFrame((time) => Renderer.render(time))
       return
     }
@@ -456,10 +477,17 @@ self.addEventListener("message", (event) => {
       }
 
       const gl = RendererState.gl
+
+      // Set initial canvas dimensions if provided
+      if (event.data.width !== undefined && event.data.height !== undefined) {
+        gl.canvas.width = event.data.width
+        gl.canvas.height = event.data.height
+      }
+
       gl.uniform2i(
         RendererState.uniforms.uResolution,
-        canvas.width,
-        canvas.height
+        gl.canvas.width,
+        gl.canvas.height
       )
 
       RendererState.formula = info

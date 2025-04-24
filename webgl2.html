@@ -45,11 +45,6 @@
       }
 
       const canvas = document.getElementById("canvas")
-      function resizeCanvas() {
-        canvas.width = window.innerWidth
-        canvas.height = window.innerHeight
-      }
-      resizeCanvas()
 
       // Transfer control to an OffscreenCanvas.
       const offscreen = canvas.transferControlToOffscreen()
@@ -62,6 +57,8 @@
         {
           type: "init",
           canvas: offscreen,
+          width: window.innerWidth,
+          height: window.innerHeight,
           info: info,
           keepAlive: true,
           refreshEveryFrame: true,
@@ -75,15 +72,9 @@
         const height = window.innerHeight
         worker.postMessage({
           type: "update",
-          info: info,
-          keepAlive: true,
-          refreshEveryFrame: true,
+          width: width,
+          height: height,
         })
-        // Update resolution uniform
-        const gl = canvas.getContext("webgl2")
-        if (gl) {
-          gl.viewport(0, 0, width, height)
-        }
       })
     </script>
   </body>
