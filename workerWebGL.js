@@ -309,9 +309,11 @@ const Renderer = {
       RendererState.lastFpsUpdate = now
     }
 
-    // Handle export if needed
+    // Handle export ONLY when in export mode
     if (renderMode.type === "export") {
+      gl.finish() // Make sure rendering is complete
       this.handleExport()
+      return // Don't continue animation for exports
     }
 
     // Send rendered message
@@ -453,7 +455,7 @@ self.addEventListener("message", (event) => {
 
       Renderer.init(canvas)
       RendererState.renderMode = {
-        type: info ? "export" : "interactive",
+        type: keepAlive ? "animation" : info ? "export" : "interactive",
         keepAlive: keepAlive || false,
       }
 
