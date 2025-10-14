@@ -1,5 +1,5 @@
 // WebGL Worker for Qbist rendering
-import { optimize } from "./qbist.js"
+import { optimize } from "./qbist.ts"
 
 // WebGL Utility Functions
 function createShader(gl, type, source) {

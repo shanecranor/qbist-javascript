@@ -1,4 +1,4 @@
-import { optimize, qbist } from "./qbist.js"
+import { optimize, qbist } from "./qbist.ts"
 // --- Worker Message Handling ---
 // Receives a "render" command with payload and sends back the computed image data.
 self.addEventListener("message", (e) => {

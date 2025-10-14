@@ -4,12 +4,12 @@ import {
   updateAll,
   formulas,
   downloadImage,
-} from "./index.js"
+} from "./main.ts"
 import {
   createInfo,
   exportToGimpFormat,
   importFromGimpFormat,
-} from "./qbist.js"
+} from "./qbist.ts"
 
 // Prompt the user for a state code or URL and load it.
 export function loadStateFromUserInput() {

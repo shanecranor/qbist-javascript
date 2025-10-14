@@ -1,4 +1,4 @@
-import WebGlWorker from "./workerWebGL.js?worker"
+import WebGlWorker from "./workerWebGL.ts?worker"
 
 export class QbistRenderer {
   constructor(canvas) {
