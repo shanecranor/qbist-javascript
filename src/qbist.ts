@@ -96,7 +96,7 @@ export function optimize(info: FormulaInfo) {
       info.control[i] = info.dest[i]
     }
   }
-  function checkLastModified(p, n) {
+  function checkLastModified(p: number, n: number) {
     p--
     while (p >= 0 && info.dest[p] !== n) {
       p--
@@ -116,14 +116,14 @@ export function optimize(info: FormulaInfo) {
 // --- Core Image Processing (qbist) ---
 // Process one pixel using the qbist algorithm.
 export function qbist(
-  info,
-  x,
-  y,
-  width,
-  height,
-  oversampling,
-  usedTransFlag,
-  usedRegFlag
+  info: FormulaInfo,
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+  oversampling: number,
+  usedTransFlag: boolean[],
+  usedRegFlag: boolean[]
 ) {
   const accum = [0, 0, 0]
   for (let yy = 0; yy < oversampling; yy++) {
@@ -241,7 +241,7 @@ export function exportToGimpFormat(info: FormulaInfo) {
   return buffer
 }
 
-export function importFromGimpFormat(buffer) {
+export function importFromGimpFormat(buffer: ArrayBuffer) {
   const view = new DataView(buffer)
   const info: FormulaInfo = {
     transformSequence: [],
