@@ -284,10 +284,13 @@ const Renderer = {
     const { gl, uniforms, renderMode } = RendererState
     if (!gl || !RendererState.program) return
 
-    // Update time uniform
-    if (uniforms.uTime !== null) {
+    // Update time uniform only in animation mode
+    if (renderMode.type === "animation" && uniforms.uTime !== null) {
       const t = time * 0.001
       gl.uniform1f(uniforms.uTime, t)
+    } else if (uniforms.uTime !== null) {
+      // In interactive mode, use a fixed time value
+      gl.uniform1f(uniforms.uTime, 0.0)
     }
 
     gl.viewport(0, 0, gl.canvas.width, gl.canvas.height)
@@ -295,18 +298,24 @@ const Renderer = {
     // Draw frame
     gl.drawArrays(gl.TRIANGLES, 0, 6)
 
-    // Calculate FPS
-    RendererState.frameCount++
-    const now = performance.now()
-    if (now - RendererState.lastFpsUpdate >= RendererState.fpsUpdateInterval) {
-      const fps =
-        (RendererState.frameCount * 1000) / (now - RendererState.lastFpsUpdate)
-      self.postMessage({
-        command: "fps",
-        fps: fps,
-      })
-      RendererState.frameCount = 0
-      RendererState.lastFpsUpdate = now
+    // Calculate FPS only in animation mode
+    if (renderMode.type === "animation") {
+      RendererState.frameCount++
+      const now = performance.now()
+      if (
+        now - RendererState.lastFpsUpdate >=
+        RendererState.fpsUpdateInterval
+      ) {
+        const fps =
+          (RendererState.frameCount * 1000) /
+          (now - RendererState.lastFpsUpdate)
+        self.postMessage({
+          command: "fps",
+          fps: fps,
+        })
+        RendererState.frameCount = 0
+        RendererState.lastFpsUpdate = now
+      }
     }
 
     // Handle export ONLY when in export mode
@@ -322,8 +331,8 @@ const Renderer = {
       keepAlive: renderMode.keepAlive,
     })
 
-    // Continue animation if keepAlive is true
-    if (renderMode.keepAlive) {
+    // Continue animation if in animation mode
+    if (renderMode.type === "animation") {
       requestAnimationFrame((t) => this.render(t))
     }
   },

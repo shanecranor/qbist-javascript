@@ -37,15 +37,15 @@ export async function updateAll() {
   const mainCanvas = document.getElementById("mainPattern")
   const renderPromises = []
 
-  // Start main canvas rendering - keep alive and refresh every frame for animation
+  // Start main canvas rendering - only use keepAlive in webgl2.html
   renderPromises.push(
     getRenderer(mainCanvas).render(mainFormula, {
-      keepAlive: true,
+      keepAlive: false,
       refreshEveryFrame: false,
     })
   )
 
-  // Start all preview renderings - no keepAlive or refreshEveryFrame needed
+  // Start all preview renderings
   for (let i = 0; i < 9; i++) {
     const canvas = document.getElementById(`preview${i}`)
     renderPromises.push(
