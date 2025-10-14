@@ -23,9 +23,11 @@ if (urlParams.has("state")) {
 
 const canvas = document.getElementById("canvas")
 const fpsDisplay = document.getElementById("fps")
+if (!(canvas instanceof HTMLCanvasElement) || !canvas)
+  throw new Error("Canvas element not found or invalid")
 
-// Transfer control to an OffscreenCanvas.
-const offscreen = canvas.transferControlToOffscreen()
+if (!(fpsDisplay instanceof HTMLDivElement) || !fpsDisplay)
+  throw new Error("FPS display element not found or invalid")
 
 // Create and start the worker.
 const worker = new WebGlWorker()
@@ -40,6 +42,7 @@ worker.onmessage = (e) => {
 }
 
 // Initialize with the pattern info and animation enabled
+const offscreen = canvas.transferControlToOffscreen()
 worker.postMessage(
   {
     type: "init",
