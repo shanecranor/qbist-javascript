@@ -1,6 +1,6 @@
 // --- Core Constants and Transformation Types ---
-const MAX_TRANSFORMS = 36
-const NUM_REGISTERS = 6
+const MAX_TRANSFORMS = 36 as const
+const NUM_REGISTERS = 6 as const
 const TransformType = {
   PROJECTION: 0,
   SHIFT: 1,
@@ -11,19 +11,26 @@ const TransformType = {
   SINE: 6,
   CONDITIONAL: 7,
   COMPLEMENT: 8,
-}
-const NUM_TRANSFORM_TYPES = 9 // Total transformation types
+} as const
+const NUM_TRANSFORM_TYPES = 9 as const // Total transformation types
 
 // --- Utility Functions ---
 // Returns a random integer in [min, max)
-function randomInt(min, max) {
+function randomInt(min: number, max: number) {
   return Math.floor(Math.random() * (max - min)) + min
 }
 
 // --- Formula Generation ---
 // Creates a random transformation formula (similar to ExpInfo in C)
+type FormulaInfo = {
+  transformSequence: number[]
+  source: number[]
+  control: number[]
+  dest: number[]
+}
+
 export function createInfo() {
-  const info = {
+  const info: FormulaInfo = {
     transformSequence: [],
     source: [],
     control: [],
@@ -39,7 +46,7 @@ export function createInfo() {
 }
 
 // Modify an existing formula by making random changes.
-export function modifyInfo(oldInfo) {
+export function modifyInfo(oldInfo: FormulaInfo) {
   const newInfo = {
     transformSequence: oldInfo.transformSequence.slice(),
     source: oldInfo.source.slice(),
@@ -77,7 +84,7 @@ export function modifyInfo(oldInfo) {
 
 // --- Optimization ---
 // Determines which transformations and registers are actually used.
-export function optimize(info) {
+export function optimize(info: FormulaInfo) {
   const usedTransFlag = new Array(MAX_TRANSFORMS).fill(false)
   const usedRegFlag = new Array(NUM_REGISTERS).fill(false)
   for (let i = 0; i < MAX_TRANSFORMS; i++) {
@@ -211,7 +218,7 @@ export function qbist(
 }
 
 // --- GIMP Qbist File Format Functions ---
-export function exportToGimpFormat(info) {
+export function exportToGimpFormat(info: FormulaInfo) {
   // Create a buffer for 288 bytes (36 16-bit integers * 4 arrays)
   const buffer = new ArrayBuffer(288)
   const view = new DataView(buffer)
@@ -236,7 +243,7 @@ export function exportToGimpFormat(info) {
 
 export function importFromGimpFormat(buffer) {
   const view = new DataView(buffer)
-  const info = {
+  const info: FormulaInfo = {
     transformSequence: [],
     source: [],
     control: [],

@@ -1,3 +1,5 @@
+import WebGlWorker from "./workerWebGL.js?worker"
+
 export class QbistRenderer {
   constructor(canvas) {
     this.canvas = canvas
@@ -12,13 +14,9 @@ export class QbistRenderer {
     if (typeof Worker === "undefined") {
       throw new Error("Web Workers are not supported in this browser")
     }
-
     // Cleanup existing worker if any
     this.cleanup()
-
-    // Use absolute path for better cross-browser compatibility with module workers
-    const workerURL = new URL("./workerWebGL.js", window.location.href).href
-    this.worker = new Worker(workerURL, { type: "module" })
+    this.worker = new WebGlWorker()
     this.worker.onerror = (err) => {
       console.error("Worker error:", err)
       this.cleanup()
