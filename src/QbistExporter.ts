@@ -1,6 +1,5 @@
 import type { FormulaInfo } from "./qbist.js"
-// @ts-ignore
-import { QbistRenderer } from "./QbistRenderer.js"
+import { QbistRenderer } from "./QbistRenderer.ts"
 export class QbistExporter {
   exportCanvas: HTMLCanvasElement | null
   renderer: QbistRenderer | null

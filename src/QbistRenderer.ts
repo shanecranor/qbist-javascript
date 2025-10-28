@@ -1,7 +1,16 @@
+import type { FormulaInfo } from "./qbist"
 import WebGlWorker from "./workerWebGL.ts?worker"
-
+interface RenderOptions {
+  keepAlive?: boolean
+  refreshEveryFrame?: boolean
+  isExport?: boolean
+}
 export class QbistRenderer {
-  constructor(canvas) {
+  canvas: HTMLCanvasElement
+  worker: Worker | null
+  isInitialized: boolean
+  keepAlive: boolean
+  constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas
     this.worker = null
     this.isInitialized = false
@@ -35,7 +44,7 @@ export class QbistRenderer {
     )
   }
 
-  async render(info, options = {}) {
+  async render(info: FormulaInfo, options: RenderOptions = {}) {
     const {
       keepAlive = false,
       refreshEveryFrame = false,
@@ -49,34 +58,33 @@ export class QbistRenderer {
       if (!this.worker) {
         this._setupWorker()
       }
-
-      const onMessage = (e) => {
+      if (!this.worker) throw new Error("Worker is not initialized")
+      const onMessage = (e: MessageEvent) => {
+        if (!this.worker) throw new Error("Worker is not initialized")
         if (e.data.command === "rendered") {
           if (!this.keepAlive) {
             this.worker.removeEventListener("message", onMessage)
           }
-          if (isExport) {
-            loadingOverlay.style.display = "none"
-          }
+          if (isExport && loadingOverlay) loadingOverlay.style.display = "none"
           resolve(e.data)
         } else if (e.data.command === "error") {
           this.worker.removeEventListener("message", onMessage)
           reject(new Error(e.data.message))
-          loadingOverlay.style.display = "none"
+          if (loadingOverlay) loadingOverlay.style.display = "none"
         }
       }
 
       this.worker.addEventListener("message", onMessage)
 
       try {
-        if (isExport) {
+        if (isExport && loadingOverlay && loadingBar) {
           loadingOverlay.style.display = "flex"
           loadingBar.style.width = "100%"
         }
 
         if (!this.isInitialized) {
           let canvas = this.canvas
-          let transferList = []
+          let transferList: Transferable[] = []
 
           // Try to use OffscreenCanvas
           try {
