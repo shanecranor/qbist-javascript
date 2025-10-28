@@ -83,13 +83,12 @@ export class QbistRenderer {
         }
 
         if (!this.isInitialized) {
-          let canvas = this.canvas
+          let initCanvas: HTMLCanvasElement | OffscreenCanvas = this.canvas
           let transferList: Transferable[] = []
-
-          // Try to use OffscreenCanvas
           try {
-            const offscreen = this.canvas.transferControlToOffscreen()
-            canvas = offscreen
+            const offscreen: OffscreenCanvas =
+              this.canvas.transferControlToOffscreen()
+            initCanvas = offscreen
             transferList = [offscreen]
           } catch (err) {
             console.warn(
@@ -101,7 +100,7 @@ export class QbistRenderer {
           this.worker.postMessage(
             {
               type: "init",
-              canvas: canvas,
+              canvas: initCanvas,
               info,
               keepAlive: this.keepAlive,
               refreshEveryFrame,
