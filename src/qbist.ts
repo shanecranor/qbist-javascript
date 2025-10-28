@@ -22,7 +22,7 @@ function randomInt(min: number, max: number) {
 
 // --- Formula Generation ---
 // Creates a random transformation formula (similar to ExpInfo in C)
-type FormulaInfo = {
+export type FormulaInfo = {
   transformSequence: number[]
   source: number[]
   control: number[]

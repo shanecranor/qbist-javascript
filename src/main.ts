@@ -3,8 +3,7 @@ import "./reset.css"
 import { createInfo, modifyInfo } from "./qbist.ts"
 // @ts-ignore
 import { loadStateFromParam } from "./qbistListeners.js"
-// @ts-ignore
-import { QbistExporter } from "./QbistExporter.js"
+import { QbistExporter } from "./QbistExporter"
 // @ts-ignore
 import { QbistRenderer } from "./QbistRenderer.js"
 
