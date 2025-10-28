@@ -4,8 +4,7 @@ import { createInfo, modifyInfo } from "./qbist.ts"
 // @ts-ignore
 import { loadStateFromParam } from "./qbistListeners.js"
 import { QbistExporter } from "./QbistExporter"
-// @ts-ignore
-import { QbistRenderer } from "./QbistRenderer.js"
+import { QbistRenderer } from "./QbistRenderer.ts"
 
 // UI Elements
 const loadingOverlay = document.getElementById("loadingOverlay")
