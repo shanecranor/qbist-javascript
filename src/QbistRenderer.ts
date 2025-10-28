@@ -125,7 +125,7 @@ export class QbistRenderer {
     })
   }
 
-  update(info) {
+  update(info: FormulaInfo) {
     if (this.worker) {
       this.worker.postMessage({
         type: "update",
