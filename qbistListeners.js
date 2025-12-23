@@ -5,7 +5,12 @@ import {
   formulas,
   downloadImage,
 } from "./index.js"
-import { createInfo } from "./qbist.js"
+import {
+  createInfo,
+  exportToGimpFormat,
+  importFromGimpFormat,
+} from "./qbist.js"
+
 // Prompt the user for a state code or URL and load it.
 export function loadStateFromUserInput() {
   const input = prompt("Paste your shared pattern URL or state code:")
@@ -23,6 +28,7 @@ export function loadStateFromUserInput() {
     alert("Invalid input")
   }
 }
+
 // save the current formula state to url parameter
 function saveState() {
   const stateJSON = JSON.stringify(mainFormula)
@@ -55,21 +61,73 @@ export function loadStateFromParam(stateBase64) {
     alert("Error loading pattern state")
   }
 }
-// when a preview is clicked, use its formula as the new main pattern
-document.querySelectorAll(".preview").forEach((canvas) => {
-  canvas.addEventListener("click", () => {
+
+// Listen for URL state changes (back/forward navigation)
+window.addEventListener("popstate", (event) => {
+  const url = new URL(window.location.href)
+  const state = url.searchParams.get("state")
+  if (state) {
+    loadStateFromParam(state)
+  }
+})
+
+// --- GIMP Format Import/Export Functions ---
+function exportToGimp() {
+  const buffer = exportToGimpFormat(mainFormula)
+  const blob = new Blob([buffer], { type: "application/octet-stream" })
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement("a")
+  try {
+    link.href = url
+    link.download = "pattern.qbe"
+    document.body.appendChild(link)
+    link.click()
+  } finally {
+    document.body.removeChild(link)
+    URL.revokeObjectURL(url)
+  }
+}
+
+function importFromGimp() {
+  const input = document.createElement("input")
+  input.type = "file"
+  input.accept = ".qbe"
+  input.onchange = async (e) => {
+    const file = e.target.files[0]
+    if (!file) return
+
+    const buffer = await file.arrayBuffer()
+    if (buffer.byteLength !== 288) {
+      alert("Invalid GIMP Qbist file format")
+      return
+    }
+
+    try {
+      const importedFormula = importFromGimpFormat(buffer)
+      Object.assign(mainFormula, importedFormula)
+      generateFormulas()
+      updateAll()
+    } catch (err) {
+      console.error("Error importing file:", err)
+      alert("Error importing file")
+    }
+  }
+  input.click()
+}
+
+// Use event delegation for preview clicks since canvases get recreated
+document.getElementById("grid").addEventListener("click", (event) => {
+  const canvas = event.target.closest(".preview")
+  if (canvas) {
     const index = parseInt(canvas.id.replace("preview", ""))
     Object.assign(mainFormula, formulas[index])
     generateFormulas()
     updateAll()
-  })
+  }
 })
 
 // button event listeners
 document.getElementById("regenButton").addEventListener("click", () => {
-  // ... other imports or code ...
-
-  // Somewhere in the file (e.g., line 69)
   Object.assign(mainFormula, createInfo())
   generateFormulas()
   updateAll()
@@ -88,3 +146,20 @@ function downloadListener() {
 document
   .getElementById("downloadButton")
   .addEventListener("click", downloadListener)
+
+// Export button event listener
+document
+  .getElementById("exportGimpButton")
+  .addEventListener("click", (event) => {
+    event.preventDefault() // Prevent form submission
+    exportToGimp()
+    document.getElementById("settingsDialog").close()
+  })
+
+// Add import button and listener to the top navigation area
+const nav = document.querySelector("nav .links")
+const importButton = document.createElement("a")
+importButton.textContent = "Import GIMP Pattern"
+importButton.style.cursor = "pointer"
+importButton.addEventListener("click", importFromGimp)
+nav.insertBefore(importButton, nav.firstChild)

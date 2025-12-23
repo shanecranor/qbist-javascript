@@ -210,35 +210,61 @@ export function qbist(
   return [accum[0] / samples, accum[1] / samples, accum[2] / samples]
 }
 
-// // Draw the pattern on a given canvas using a specific formula.
-// function drawQbist(canvas, info, oversampling = 0) {
-//   const ctx = canvas.getContext("2d")
-//   const width = canvas.width
-//   const height = canvas.height
-//   const imageData = ctx.createImageData(width, height)
-//   const data = imageData.data
-//   const { usedTransFlag, usedRegFlag } = optimize(info)
-//   for (let y = 0; y < height; y++) {
-//     for (let x = 0; x < width; x++) {
-//       const color = qbist(
-//         info,
-//         x,
-//         y,
-//         width,
-//         height,
-//         oversampling,
-//         usedTransFlag,
-//         usedRegFlag
-//       )
-//       const r = Math.floor(color[0] * 255)
-//       const g = Math.floor(color[1] * 255)
-//       const b = Math.floor(color[2] * 255)
-//       const idx = (y * width + x) * 4
-//       data[idx] = r
-//       data[idx + 1] = g
-//       data[idx + 2] = b
-//       data[idx + 3] = 255
-//     }
-//   }
-//   ctx.putImageData(imageData, 0, 0)
-// }
+// --- GIMP Qbist File Format Functions ---
+export function exportToGimpFormat(info) {
+  // Create a buffer for 288 bytes (36 16-bit integers * 4 arrays)
+  const buffer = new ArrayBuffer(288)
+  const view = new DataView(buffer)
+
+  // Write each array as 16-bit big-endian integers
+  for (let i = 0; i < MAX_TRANSFORMS; i++) {
+    // transformSequence (first 72 bytes)
+    view.setUint16(i * 2, info.transformSequence[i], false) // false = big-endian
+
+    // source (next 72 bytes)
+    view.setUint16(72 + i * 2, info.source[i], false)
+
+    // control (next 72 bytes)
+    view.setUint16(144 + i * 2, info.control[i], false)
+
+    // dest (final 72 bytes)
+    view.setUint16(216 + i * 2, info.dest[i], false)
+  }
+
+  return buffer
+}
+
+export function importFromGimpFormat(buffer) {
+  const view = new DataView(buffer)
+  const info = {
+    transformSequence: [],
+    source: [],
+    control: [],
+    dest: [],
+  }
+  if (buffer.byteLength !== MAX_TRANSFORMS * 2 * 4) {
+    throw new RangeError(
+      `Expected ${MAX_TRANSFORMS * 2 * 4} byte GIMP Qbist buffer, got ${
+        buffer.byteLength
+      }`
+    )
+  }
+  // Read each array as 16-bit big-endian integers
+  for (let i = 0; i < MAX_TRANSFORMS; i++) {
+    // transformSequence (first 72 bytes)
+    info.transformSequence.push(
+      view.getUint16(i * 2, false) % NUM_TRANSFORM_TYPES
+    )
+
+    // source (next 72 bytes)
+    info.source.push(view.getUint16(72 + i * 2, false) % NUM_REGISTERS)
+
+    // control (next 72 bytes)
+    info.control.push(view.getUint16(144 + i * 2, false) % NUM_REGISTERS)
+
+    // dest (final 72 bytes)
+    info.dest.push(view.getUint16(216 + i * 2, false) % NUM_REGISTERS)
+  }
+
+  return info
+}
