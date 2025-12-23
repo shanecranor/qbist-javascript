@@ -1,8 +1,7 @@
 import "./index.css"
 import "./reset.css"
 import { createInfo, modifyInfo } from "./qbist.ts"
-// @ts-ignore
-import { loadStateFromParam } from "./qbistListeners.js"
+import { loadStateFromParam } from "./qbistListeners.ts"
 import { QbistExporter } from "./QbistExporter"
 import { QbistRenderer } from "./QbistRenderer.ts"
 
