@@ -7,8 +7,9 @@ import { QbistRenderer } from "./QbistRenderer.ts"
 
 // UI Elements
 const loadingOverlay = document.getElementById("loadingOverlay")
-const loadingBar = document.getElementById("loadingBar")
-if (!loadingOverlay) throw new Error("Missing loading overlay element")
+if (!(loadingOverlay instanceof HTMLElement)) {
+  throw new Error("Missing loading overlay element")
+}
 loadingOverlay.style.display = "none"
 
 // --- Managing the 9-Panel Grid ---
@@ -83,7 +84,7 @@ export async function updateAll() {
 export async function downloadImage(
   outputWidth: number,
   outputHeight: number,
-  oversampling = 1
+  _oversampling = 1
 ) {
   try {
     await exporter.exportImage(mainFormula, outputWidth, outputHeight)

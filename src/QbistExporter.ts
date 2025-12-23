@@ -1,5 +1,5 @@
-import type { FormulaInfo } from "./qbist.js"
-import { QbistRenderer } from "./QbistRenderer.ts"
+import type { FormulaInfo } from "./qbist.ts"
+import { QbistRenderer, type RenderResult } from "./QbistRenderer.ts"
 export class QbistExporter {
   exportCanvas: HTMLCanvasElement | null
   renderer: QbistRenderer | null
@@ -19,12 +19,20 @@ export class QbistExporter {
       console.log(`[Canvas Create] Created export canvas ${width}x${height}`)
 
       this.renderer = new QbistRenderer(this.exportCanvas)
-      const result = await this.renderer.render(info, { isExport: true })
+      const result: RenderResult = await this.renderer.render(info, {
+        isExport: true,
+      })
 
       if (result.kind === "bitmap") {
         await this.handleBitmapExport(result.bitmap, width, height)
       } else if (result.kind === "pixels") {
-        await this.handlePixelExport(result.pixels, result.width, result.height)
+        await this.handlePixelExport(
+          result.pixels,
+          result.width,
+          result.height
+        )
+      } else {
+        console.warn("Received render result without export payload", result)
       }
     } finally {
       this.cleanup()
@@ -32,7 +40,7 @@ export class QbistExporter {
   }
 
   async handleBitmapExport(
-    bitmap: HTMLImageElement,
+    bitmap: ImageBitmap,
     width: number,
     height: number
   ) {

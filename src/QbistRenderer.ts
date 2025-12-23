@@ -1,10 +1,35 @@
-import type { FormulaInfo } from "./qbist"
+import type { FormulaInfo } from "./qbist.ts"
 import WebGlWorker from "./workerWebGL.ts?worker"
+
 interface RenderOptions {
   keepAlive?: boolean
   refreshEveryFrame?: boolean
   isExport?: boolean
 }
+
+export type RenderResult =
+  | {
+      command: "rendered"
+      keepAlive?: boolean
+      kind: "bitmap"
+      bitmap: ImageBitmap
+    }
+  | {
+      command: "rendered"
+      keepAlive?: boolean
+      kind: "pixels"
+      pixels: ArrayBuffer
+      width: number
+      height: number
+    }
+  | {
+      command: "rendered"
+      keepAlive?: boolean
+      kind?: undefined
+    }
+
+type WorkerMessageData = RenderResult | { command: "error"; message: string }
+
 export class QbistRenderer {
   canvas: HTMLCanvasElement
   worker: Worker | null
@@ -44,7 +69,10 @@ export class QbistRenderer {
     )
   }
 
-  async render(info: FormulaInfo, options: RenderOptions = {}) {
+  async render(
+    info: FormulaInfo,
+    options: RenderOptions = {}
+  ): Promise<RenderResult> {
     const {
       keepAlive = false,
       refreshEveryFrame = false,
@@ -52,14 +80,14 @@ export class QbistRenderer {
     } = options
     this.keepAlive = keepAlive
 
-    return new Promise((resolve, reject) => {
+    return new Promise<RenderResult>((resolve, reject) => {
       const loadingOverlay = document.getElementById("loadingOverlay")
       const loadingBar = document.getElementById("loadingBar")
       if (!this.worker) {
         this._setupWorker()
       }
       if (!this.worker) throw new Error("Worker is not initialized")
-      const onMessage = (e: MessageEvent) => {
+      const onMessage = (e: MessageEvent<WorkerMessageData>) => {
         if (!this.worker) throw new Error("Worker is not initialized")
         if (e.data.command === "rendered") {
           if (!this.keepAlive) {
@@ -104,6 +132,7 @@ export class QbistRenderer {
               info,
               keepAlive: this.keepAlive,
               refreshEveryFrame,
+              isExport,
             },
             transferList
           )
@@ -115,6 +144,7 @@ export class QbistRenderer {
             info,
             keepAlive: this.keepAlive,
             refreshEveryFrame,
+            isExport,
           })
         }
       } catch (err) {
