@@ -197,6 +197,7 @@ function registerCanvas(message: RegisterMessage) {
   canvas.width = width
   canvas.height = height
 
+  gl.useProgram(program)
   if (uniforms.uResolution) {
     gl.uniform2i(uniforms.uResolution, width, height)
   }
@@ -328,12 +329,14 @@ function resizeCanvas(context: RendererContext, width: number, height: number) {
 
   const uniform = context.uniforms.uResolution
   if (uniform) {
+    context.gl.useProgram(context.program)
     context.gl.uniform2i(uniform, width, height)
   }
 }
 
 function uploadFormula(context: RendererContext, info: FormulaInfo) {
   const { gl, uniforms } = context
+  gl.useProgram(context.program)
   const { usedTransFlag, usedRegFlag } = optimize(info)
 
   if (uniforms.uTransformSequence) {

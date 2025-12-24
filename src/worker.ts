@@ -5,6 +5,7 @@ import type { FormulaInfo } from "./qbist.ts"
 
 type RenderCommandMessage = {
   command: "render"
+  requestId: number
   info: FormulaInfo
   width: number
   height: number
@@ -13,20 +14,34 @@ type RenderCommandMessage = {
 
 type WorkerMessage = RenderCommandMessage
 
+type ProgressMessage = {
+  command: "progress"
+  requestId: number
+  progress: number
+}
+
+type RenderedMessage = {
+  command: "rendered"
+  requestId: number
+  imageData: ArrayBuffer
+  width: number
+  height: number
+}
+
 const ctx = self as DedicatedWorkerGlobalScope
 
 ctx.addEventListener("message", (event: MessageEvent<WorkerMessage>) => {
   const data = event.data
   if (data.command !== "render") return
 
-  const { info, width, height, oversampling = 1 } = data
+  const { requestId, info, width, height, oversampling = 1 } = data
   const { usedTransFlag, usedRegFlag } = optimize(info)
   const buffer = new Uint8ClampedArray(width * height * 4)
 
   for (let y = 0; y < height; y++) {
     const progress = Math.floor((y / height) * 100)
     if (height > 256) {
-      ctx.postMessage({ command: "progress", progress })
+      ctx.postMessage({ command: "progress", requestId, progress } satisfies ProgressMessage)
     }
     for (let x = 0; x < width; x++) {
       const color = qbist(
@@ -51,7 +66,13 @@ ctx.addEventListener("message", (event: MessageEvent<WorkerMessage>) => {
   }
 
   ctx.postMessage(
-    { command: "rendered", imageData: buffer.buffer, width, height },
+    {
+      command: "rendered",
+      requestId,
+      imageData: buffer.buffer,
+      width,
+      height,
+    } satisfies RenderedMessage,
     [buffer.buffer]
   )
 })

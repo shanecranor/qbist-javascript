@@ -4,6 +4,7 @@ import { createInfo, modifyInfo } from "./qbist.ts"
 import { loadStateFromParam } from "./qbistListeners.ts"
 import { QbistExporter } from "./QbistExporter"
 import { QbistRenderer } from "./QbistRenderer.ts"
+import { PreviewCpuRenderer } from "./PreviewCpuRenderer.ts"
 
 // UI Elements
 const loadingOverlay = document.getElementById("loadingOverlay")
@@ -40,35 +41,24 @@ function clearInitialLoadingOverlay() {
   loadingTextElement.textContent = defaultLoadingText
 }
 
-function scheduleDeferredPreviewRender(index: number) {
-  const executeRender = () => {
-    const canvas = document.getElementById(`preview${index}`)
-    if (!(canvas instanceof HTMLCanvasElement)) {
-      console.warn(`Preview canvas preview${index} not found or invalid`)
-      return
-    }
-    getRenderer(canvas)
-      .render(formulas[index], {
-        keepAlive: false,
-        refreshEveryFrame: false,
-      })
-      .catch((err: unknown) => {
-        console.error(`Error rendering preview${index}:`, err)
-      })
+function renderPreview(index: number) {
+  const canvas = document.getElementById(`preview${index}`)
+  if (!(canvas instanceof HTMLCanvasElement)) {
+    console.warn(`Preview canvas preview${index} not found or invalid`)
+    return Promise.resolve()
   }
 
-  if (typeof window.requestIdleCallback === "function") {
-    window.requestIdleCallback(() => executeRender())
-  } else {
-    window.setTimeout(executeRender, 0)
-  }
+  return previewRenderer.render(canvas, formulas[index]).catch((err: unknown) => {
+    console.error(`Error rendering preview${index}:`, err)
+  })
 }
 
 // --- Managing the 9-Panel Grid ---
 export const formulas = new Array(9)
 export const mainFormula = createInfo()
-const renderers = new Map()
+const renderers = new Map<HTMLCanvasElement, QbistRenderer>()
 const exporter = new QbistExporter()
+const previewRenderer = new PreviewCpuRenderer()
 
 // Generate variations based on the current main formula
 export function generateFormulas() {
@@ -112,29 +102,19 @@ export async function updateAll() {
     mainRenderPromise
       .then(() => {
         for (let i = 0; i < 9; i++) {
-          scheduleDeferredPreviewRender(i)
+          void renderPreview(i)
         }
       })
       .catch((err: unknown) => {
         console.error("Error during initial main render:", err)
         for (let i = 0; i < 9; i++) {
-          scheduleDeferredPreviewRender(i)
+          void renderPreview(i)
         }
       })
   } else {
     // Start all preview renderings immediately after first load
     for (let i = 0; i < 9; i++) {
-      const canvas = document.getElementById(`preview${i}`)
-      if (!(canvas instanceof HTMLCanvasElement) || !canvas) {
-        console.warn(`Preview canvas preview${i} not found or invalid`)
-        continue
-      }
-      renderPromises.push(
-        getRenderer(canvas).render(formulas[i], {
-          keepAlive: false,
-          refreshEveryFrame: false,
-        })
-      )
+      renderPromises.push(renderPreview(i))
     }
   }
 
@@ -195,4 +175,5 @@ if (!checkURLState()) {
 window.addEventListener("unload", () => {
   renderers.forEach((renderer) => renderer.cleanup())
   exporter.cleanup()
+  previewRenderer.cleanup()
 })
