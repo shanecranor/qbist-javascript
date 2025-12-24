@@ -10,7 +10,59 @@ const loadingOverlay = document.getElementById("loadingOverlay")
 if (!(loadingOverlay instanceof HTMLElement)) {
   throw new Error("Missing loading overlay element")
 }
+const loadingText = document.getElementById("loadingText")
+if (!(loadingText instanceof HTMLElement)) {
+  throw new Error("Missing loading text element")
+}
+const overlayElement = loadingOverlay
+const loadingTextElement = loadingText
+const defaultLoadingText = loadingText.textContent ?? ""
 loadingOverlay.style.display = "none"
+
+let initialLoadPending = true
+let initialOverlayTimer: number | null = null
+
+function scheduleInitialLoadingOverlay() {
+  if (initialOverlayTimer !== null) return
+  initialOverlayTimer = window.setTimeout(() => {
+    loadingTextElement.textContent =
+      "Preparing WebGL renderer"
+    overlayElement.style.display = "flex"
+  }, 200)
+}
+
+function clearInitialLoadingOverlay() {
+  if (initialOverlayTimer !== null) {
+    window.clearTimeout(initialOverlayTimer)
+    initialOverlayTimer = null
+  }
+  overlayElement.style.display = "none"
+  loadingTextElement.textContent = defaultLoadingText
+}
+
+function scheduleDeferredPreviewRender(index: number) {
+  const executeRender = () => {
+    const canvas = document.getElementById(`preview${index}`)
+    if (!(canvas instanceof HTMLCanvasElement)) {
+      console.warn(`Preview canvas preview${index} not found or invalid`)
+      return
+    }
+    getRenderer(canvas)
+      .render(formulas[index], {
+        keepAlive: false,
+        refreshEveryFrame: false,
+      })
+      .catch((err: unknown) => {
+        console.error(`Error rendering preview${index}:`, err)
+      })
+  }
+
+  if (typeof window.requestIdleCallback === "function") {
+    window.requestIdleCallback(() => executeRender())
+  } else {
+    window.setTimeout(executeRender, 0)
+  }
+}
 
 // --- Managing the 9-Panel Grid ---
 export const formulas = new Array(9)
@@ -44,27 +96,46 @@ export async function updateAll() {
   }
   const renderPromises = []
 
-  // Start main canvas rendering - only use keepAlive in webgl2.html
-  renderPromises.push(
-    getRenderer(mainCanvas).render(mainFormula, {
-      keepAlive: false,
-      refreshEveryFrame: false,
-    })
-  )
+  const shouldShowInitialOverlay = initialLoadPending
+  if (shouldShowInitialOverlay) {
+    scheduleInitialLoadingOverlay()
+  }
 
-  // Start all preview renderings
-  for (let i = 0; i < 9; i++) {
-    const canvas = document.getElementById(`preview${i}`)
-    if (!(canvas instanceof HTMLCanvasElement) || !canvas) {
-      console.warn(`Preview canvas preview${i} not found or invalid`)
-      continue
-    }
-    renderPromises.push(
-      getRenderer(canvas).render(formulas[i], {
-        keepAlive: false,
-        refreshEveryFrame: false,
+  // Start main canvas rendering - only use keepAlive in webgl2.html
+  const mainRenderPromise = getRenderer(mainCanvas).render(mainFormula, {
+    keepAlive: false,
+    refreshEveryFrame: false,
+  })
+  renderPromises.push(mainRenderPromise)
+
+  if (shouldShowInitialOverlay) {
+    mainRenderPromise
+      .then(() => {
+        for (let i = 0; i < 9; i++) {
+          scheduleDeferredPreviewRender(i)
+        }
       })
-    )
+      .catch((err: unknown) => {
+        console.error("Error during initial main render:", err)
+        for (let i = 0; i < 9; i++) {
+          scheduleDeferredPreviewRender(i)
+        }
+      })
+  } else {
+    // Start all preview renderings immediately after first load
+    for (let i = 0; i < 9; i++) {
+      const canvas = document.getElementById(`preview${i}`)
+      if (!(canvas instanceof HTMLCanvasElement) || !canvas) {
+        console.warn(`Preview canvas preview${i} not found or invalid`)
+        continue
+      }
+      renderPromises.push(
+        getRenderer(canvas).render(formulas[i], {
+          keepAlive: false,
+          refreshEveryFrame: false,
+        })
+      )
+    }
   }
 
   // Update URL state
@@ -77,6 +148,11 @@ export async function updateAll() {
     await Promise.all(renderPromises)
   } catch (err) {
     console.error("Error during render:", err)
+  } finally {
+    if (shouldShowInitialOverlay) {
+      clearInitialLoadingOverlay()
+      initialLoadPending = false
+    }
   }
 }
 

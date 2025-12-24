@@ -28,44 +28,92 @@ export type RenderResult =
       kind?: undefined
     }
 
-type WorkerMessageData = RenderResult | { command: "error"; message: string }
+type WorkerRenderedMessage =
+  | (RenderResult & {
+      canvasId: string
+      requestId: number
+      keepAlive: boolean
+    })
 
-export class QbistRenderer {
-  canvas: HTMLCanvasElement
-  worker: Worker | null
-  isInitialized: boolean
+type WorkerErrorMessage = {
+  command: "error"
+  canvasId: string
+  requestId: number
+  message: string
+}
+
+type WorkerMessageData = WorkerRenderedMessage | WorkerErrorMessage
+
+interface PendingRequest {
+  resolve: (result: RenderResult) => void
+  reject: (error: Error) => void
   keepAlive: boolean
-  constructor(canvas: HTMLCanvasElement) {
-    this.canvas = canvas
-    this.worker = null
-    this.isInitialized = false
-    this.keepAlive = false
-    console.log(`[Canvas Create] Created renderer for canvas ${canvas.id}`)
-    this._setupWorker()
-  }
+  isExport: boolean
+}
 
-  _setupWorker() {
+const rendererRegistry = new Map<string, QbistRenderer>()
+
+let sharedWorker: Worker | null = null
+let workerMessageListener: ((event: MessageEvent<WorkerMessageData>) => void) | null =
+  null
+let workerErrorListener: ((event: ErrorEvent) => void) | null = null
+let nextRequestId = 1
+let nextRendererId = 1
+
+function ensureSharedWorker(): Worker {
+  if (!sharedWorker) {
     if (typeof Worker === "undefined") {
       throw new Error("Web Workers are not supported in this browser")
     }
-    // Cleanup existing worker if any
-    this.cleanup()
-    this.worker = new WebGlWorker()
-    this.worker.onerror = (err) => {
-      console.error("Worker error:", err)
-      this.cleanup()
+    sharedWorker = new WebGlWorker()
+    workerMessageListener = (event: MessageEvent<WorkerMessageData>) => {
+      const data = event.data
+      if (!data || typeof data !== "object") return
+      const canvasId = "canvasId" in data ? data.canvasId : undefined
+      if (!canvasId) return
+      const renderer = rendererRegistry.get(canvasId)
+      renderer?.receiveWorkerMessage(data)
     }
+    workerErrorListener = (event: ErrorEvent) => {
+      console.error("WebGL worker error:", event.message, event.error)
+      rendererRegistry.forEach((renderer) => renderer.handleWorkerFailure())
+    }
+    sharedWorker.addEventListener("message", workerMessageListener)
+    sharedWorker.addEventListener("error", workerErrorListener)
   }
+  return sharedWorker
+}
 
-  cleanup() {
-    if (this.worker) {
-      this.worker.postMessage({ type: "cleanup" })
-      this.worker = null
-    }
-    this.isInitialized = false
+export class QbistRenderer {
+  private canvas: HTMLCanvasElement
+  private rendererId: string
+  private keepAlive: boolean
+  private isRegistered: boolean
+  private pendingRequests: Map<number, PendingRequest>
+  private activeRequestId: number | null
+  private worker: Worker | null
+
+  constructor(canvas: HTMLCanvasElement) {
+    this.canvas = canvas
+    const existingId =
+      canvas.dataset.qbistRendererId && canvas.dataset.qbistRendererId.length > 0
+        ? canvas.dataset.qbistRendererId
+        : canvas.id
+    this.rendererId =
+      existingId && existingId.length > 0
+        ? existingId
+        : `qbist-canvas-${nextRendererId++}`
+    canvas.dataset.qbistRendererId = this.rendererId
+
     this.keepAlive = false
+    this.isRegistered = false
+    this.pendingRequests = new Map()
+    this.activeRequestId = null
+    this.worker = ensureSharedWorker()
+
+    rendererRegistry.set(this.rendererId, this)
     console.log(
-      `[Canvas Delete] Cleaned up renderer for canvas ${this.canvas.id}`
+      `[Canvas Create] Created renderer for canvas ${canvas.id || this.rendererId}`
     )
   }
 
@@ -78,89 +126,208 @@ export class QbistRenderer {
       refreshEveryFrame = false,
       isExport = false,
     } = options
+
     this.keepAlive = keepAlive
+    this.worker = ensureSharedWorker()
+
+    const loadingOverlay = document.getElementById("loadingOverlay")
+    const loadingBar = document.getElementById("loadingBar")
 
     return new Promise<RenderResult>((resolve, reject) => {
-      const loadingOverlay = document.getElementById("loadingOverlay")
-      const loadingBar = document.getElementById("loadingBar")
       if (!this.worker) {
-        this._setupWorker()
-      }
-      if (!this.worker) throw new Error("Worker is not initialized")
-      const onMessage = (e: MessageEvent<WorkerMessageData>) => {
-        if (!this.worker) throw new Error("Worker is not initialized")
-        if (e.data.command === "rendered") {
-          if (!this.keepAlive) {
-            this.worker.removeEventListener("message", onMessage)
-          }
-          if (isExport && loadingOverlay) loadingOverlay.style.display = "none"
-          resolve(e.data)
-        } else if (e.data.command === "error") {
-          this.worker.removeEventListener("message", onMessage)
-          reject(new Error(e.data.message))
-          if (loadingOverlay) loadingOverlay.style.display = "none"
-        }
+        reject(new Error("Worker is not initialized"))
+        return
       }
 
-      this.worker.addEventListener("message", onMessage)
+      if (isExport && loadingOverlay && loadingBar) {
+        loadingOverlay.style.display = "flex"
+        loadingBar.style.width = "100%"
+      }
+
+      const requestId = nextRequestId++
+      this.activeRequestId = requestId
+      this.pendingRequests.set(requestId, {
+        resolve,
+        reject,
+        keepAlive,
+        isExport,
+      })
 
       try {
-        if (isExport && loadingOverlay && loadingBar) {
-          loadingOverlay.style.display = "flex"
-          loadingBar.style.width = "100%"
+        this.registerWithWorker()
+        this.worker.postMessage({
+          type: "render",
+          canvasId: this.rendererId,
+          requestId,
+          info,
+          keepAlive,
+          refreshEveryFrame,
+          isExport,
+          width: this.canvas.width,
+          height: this.canvas.height,
+        })
+      } catch (error) {
+        this.pendingRequests.delete(requestId)
+        if (isExport && loadingOverlay) {
+          loadingOverlay.style.display = "none"
         }
-
-        if (!this.isInitialized) {
-          let initCanvas: HTMLCanvasElement | OffscreenCanvas = this.canvas
-          let transferList: Transferable[] = []
-          try {
-            const offscreen: OffscreenCanvas =
-              this.canvas.transferControlToOffscreen()
-            initCanvas = offscreen
-            transferList = [offscreen]
-          } catch (err) {
-            console.warn(
-              "OffscreenCanvas not supported, falling back to regular canvas",
-              err
-            )
-          }
-
-          this.worker.postMessage(
-            {
-              type: "init",
-              canvas: initCanvas,
-              info,
-              keepAlive: this.keepAlive,
-              refreshEveryFrame,
-              isExport,
-            },
-            transferList
-          )
-          this.isInitialized = true
-        } else {
-          // Just update the info for subsequent renders
-          this.worker.postMessage({
-            type: "update",
-            info,
-            keepAlive: this.keepAlive,
-            refreshEveryFrame,
-            isExport,
-          })
-        }
-      } catch (err) {
-        this.worker.removeEventListener("message", onMessage)
-        reject(err)
+        reject(error instanceof Error ? error : new Error(String(error)))
       }
     })
   }
 
   update(info: FormulaInfo) {
-    if (this.worker) {
-      this.worker.postMessage({
-        type: "update",
-        info,
-        keepAlive: this.keepAlive,
-      })
+    if (!this.worker || !this.isRegistered || this.activeRequestId === null) {
+      return
+    }
+    this.worker.postMessage({
+      type: "update",
+      canvasId: this.rendererId,
+      requestId: this.activeRequestId,
+      info,
+      keepAlive: this.keepAlive,
+      width: this.canvas.width,
+      height: this.canvas.height,
+    })
+  }
+
+  cleanup() {
+    const worker = sharedWorker
+    if (worker && this.isRegistered) {
+      worker.postMessage({ type: "cleanup", canvasId: this.rendererId })
+    }
+
+    this.pendingRequests.forEach(({ reject }) => {
+      reject(new Error("Renderer cleaned up"))
+    })
+    this.pendingRequests.clear()
+
+    rendererRegistry.delete(this.rendererId)
+
+    this.activeRequestId = null
+    this.isRegistered = false
+    this.keepAlive = false
+    this.worker = null
+
+    if (rendererRegistry.size === 0 && sharedWorker) {
+      sharedWorker.postMessage({ type: "cleanup" })
+      if (workerMessageListener) {
+        sharedWorker.removeEventListener("message", workerMessageListener)
+        workerMessageListener = null
+      }
+      if (workerErrorListener) {
+        sharedWorker.removeEventListener("error", workerErrorListener)
+        workerErrorListener = null
+      }
+      sharedWorker.terminate()
+      sharedWorker = null
+    }
+
+    console.log(
+      `[Canvas Delete] Cleaned up renderer for canvas ${this.canvas.id || this.rendererId}`
+    )
+  }
+
+  receiveWorkerMessage(data: WorkerMessageData) {
+    if (data.command === "rendered") {
+      const pending = this.pendingRequests.get(data.requestId)
+      if (pending) {
+        this.pendingRequests.delete(data.requestId)
+
+        if (pending.isExport) {
+          const overlay = document.getElementById("loadingOverlay")
+          if (overlay) overlay.style.display = "none"
+        }
+
+        pending.resolve(this.toRenderResult(data))
+
+        if (!pending.keepAlive && this.activeRequestId === data.requestId) {
+          this.activeRequestId = null
+        }
+      }
+    } else if (data.command === "error") {
+      const pending = this.pendingRequests.get(data.requestId)
+      if (pending) {
+        this.pendingRequests.delete(data.requestId)
+        if (pending.isExport) {
+          const overlay = document.getElementById("loadingOverlay")
+          if (overlay) overlay.style.display = "none"
+        }
+        pending.reject(new Error(data.message))
+
+        if (!pending.keepAlive && this.activeRequestId === data.requestId) {
+          this.activeRequestId = null
+        }
+      } else {
+        console.error(`Worker error for ${this.rendererId}:`, data.message)
+      }
+    }
+  }
+
+  handleWorkerFailure() {
+    this.pendingRequests.forEach(({ reject }) => {
+      reject(new Error("WebGL worker failed"))
+    })
+    this.pendingRequests.clear()
+    this.activeRequestId = null
+    this.isRegistered = false
+    this.worker = null
+    const overlay = document.getElementById("loadingOverlay")
+    if (overlay) overlay.style.display = "none"
+  }
+
+  private registerWithWorker() {
+    if (this.isRegistered) return
+    if (!this.worker) {
+      this.worker = ensureSharedWorker()
+    }
+    if (!this.worker) {
+      throw new Error("Worker is not available")
+    }
+
+    let offscreen: OffscreenCanvas
+    try {
+      offscreen = this.canvas.transferControlToOffscreen()
+    } catch (error) {
+      throw new Error("OffscreenCanvas not supported in this browser")
+    }
+
+    this.worker.postMessage(
+      {
+        type: "register",
+        canvasId: this.rendererId,
+        canvas: offscreen,
+        width: this.canvas.width,
+        height: this.canvas.height,
+      },
+      [offscreen]
+    )
+
+    this.isRegistered = true
+  }
+
+  private toRenderResult(data: WorkerRenderedMessage): RenderResult {
+    if (data.kind === "bitmap") {
+      return {
+        command: "rendered",
+        keepAlive: data.keepAlive,
+        kind: "bitmap",
+        bitmap: data.bitmap,
+      }
+    }
+    if (data.kind === "pixels") {
+      return {
+        command: "rendered",
+        keepAlive: data.keepAlive,
+        kind: "pixels",
+        pixels: data.pixels,
+        width: data.width,
+        height: data.height,
+      }
+    }
+    return {
+      command: "rendered",
+      keepAlive: data.keepAlive,
     }
   }
 }
