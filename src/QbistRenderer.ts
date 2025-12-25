@@ -1,7 +1,7 @@
 import type { FormulaInfo } from "./qbist.ts"
 import WebGlWorker from "./workerWebGL.ts?worker"
 
-interface RenderOptions {
+export interface RenderOptions {
   keepAlive?: boolean
   refreshEveryFrame?: boolean
   isExport?: boolean
@@ -59,8 +59,6 @@ interface PendingRequest {
   isExport: boolean
 }
 
-const rendererRegistry = new Map<string, QbistRenderer>()
-
 interface PendingPing {
   resolve: () => void
   reject: (error: Error) => void
@@ -76,6 +74,8 @@ let nextPingId = 1
 const pendingPings = new Map<number, PendingPing>()
 let workerResponsive = false
 let workerResponsivePromise: Promise<void> | null = null
+
+const rendererRegistry = new Map<string, QbistRenderer>()
 
 function rejectPendingPings(error: Error) {
   pendingPings.forEach((pending, pingId) => {
@@ -123,15 +123,22 @@ function ensureSharedWorker(): Worker {
 
 export class QbistRenderer {
   private canvas: HTMLCanvasElement
+  private ctx: CanvasRenderingContext2D | null
   private rendererId: string
   private keepAlive: boolean
-  private isRegistered: boolean
   private pendingRequests: Map<number, PendingRequest>
   private activeRequestId: number | null
   private worker: Worker | null
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas
+    this.ctx = canvas.getContext("2d")
+    
+    if (!this.ctx) {
+      // Could happen if the canvas was transferred to the worker previously (like in a hot reload)
+      console.warn(`Could not get 2D context for canvas ${canvas.id}. It might have been transferred previously.`)
+    }
+
     const existingId =
       canvas.dataset.qbistRendererId && canvas.dataset.qbistRendererId.length > 0
         ? canvas.dataset.qbistRendererId
@@ -143,7 +150,6 @@ export class QbistRenderer {
     canvas.dataset.qbistRendererId = this.rendererId
 
     this.keepAlive = false
-    this.isRegistered = false
     this.pendingRequests = new Map()
     this.activeRequestId = null
     this.worker = ensureSharedWorker()
@@ -240,7 +246,6 @@ export class QbistRenderer {
       })
 
       try {
-        this.registerWithWorker()
         this.worker.postMessage({
           type: "render",
           canvasId: this.rendererId,
@@ -263,7 +268,7 @@ export class QbistRenderer {
   }
 
   update(info: FormulaInfo) {
-    if (!this.worker || !this.isRegistered || this.activeRequestId === null) {
+    if (!this.worker || this.activeRequestId === null) {
       return
     }
     this.worker.postMessage({
@@ -278,11 +283,6 @@ export class QbistRenderer {
   }
 
   cleanup() {
-    const worker = sharedWorker
-    if (worker && this.isRegistered) {
-      worker.postMessage({ type: "cleanup", canvasId: this.rendererId })
-    }
-
     this.pendingRequests.forEach(({ reject }) => {
       reject(new Error("Renderer cleaned up"))
     })
@@ -291,24 +291,11 @@ export class QbistRenderer {
     rendererRegistry.delete(this.rendererId)
 
     this.activeRequestId = null
-    this.isRegistered = false
     this.keepAlive = false
     this.worker = null
+    this.ctx = null
 
-    if (rendererRegistry.size === 0 && sharedWorker) {
-      sharedWorker.postMessage({ type: "cleanup" })
-      rejectPendingPings(new Error("WebGL worker terminated"))
-      if (workerMessageListener) {
-        sharedWorker.removeEventListener("message", workerMessageListener)
-        workerMessageListener = null
-      }
-      if (workerErrorListener) {
-        sharedWorker.removeEventListener("error", workerErrorListener)
-        workerErrorListener = null
-      }
-      sharedWorker.terminate()
-      sharedWorker = null
-    }
+
 
     console.log(
       `[Canvas Delete] Cleaned up renderer for canvas ${this.canvas.id || this.rendererId}`
@@ -324,6 +311,20 @@ export class QbistRenderer {
         if (pending.isExport) {
           const overlay = document.getElementById("loadingOverlay")
           if (overlay) overlay.style.display = "none"
+        }
+
+        // Draw to 2D Canvas
+        if (data.kind === "bitmap" && this.ctx) {
+           this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height)
+           this.ctx.drawImage(data.bitmap, 0, 0)
+           data.bitmap.close()
+        } else if (data.kind === "pixels" && this.ctx) {
+             const imageData = new ImageData(
+               new Uint8ClampedArray(data.pixels), 
+               data.width, 
+               data.height
+             )
+             this.ctx.putImageData(imageData, 0, 0)
         }
 
         pending.resolve(this.toRenderResult(data))
@@ -357,7 +358,6 @@ export class QbistRenderer {
     })
     this.pendingRequests.clear()
     this.activeRequestId = null
-    this.isRegistered = false
     this.worker = null
     if (pendingPings.size > 0) {
       rejectPendingPings(new Error("WebGL worker failed"))
@@ -369,55 +369,7 @@ export class QbistRenderer {
     if (overlay) overlay.style.display = "none"
   }
 
-  private registerWithWorker() {
-    if (this.isRegistered) return
-    if (!this.worker) {
-      this.worker = ensureSharedWorker()
-    }
-    if (!this.worker) {
-      throw new Error("Worker is not available")
-    }
-
-    let offscreen: OffscreenCanvas
-    try {
-      offscreen = this.canvas.transferControlToOffscreen()
-    } catch (error) {
-      throw new Error("OffscreenCanvas not supported in this browser")
-    }
-
-    this.worker.postMessage(
-      {
-        type: "register",
-        canvasId: this.rendererId,
-        canvas: offscreen,
-        width: this.canvas.width,
-        height: this.canvas.height,
-      },
-      [offscreen]
-    )
-
-    this.isRegistered = true
-  }
-
-  private toRenderResult(data: WorkerRenderedMessage): RenderResult {
-    if (data.kind === "bitmap") {
-      return {
-        command: "rendered",
-        keepAlive: data.keepAlive,
-        kind: "bitmap",
-        bitmap: data.bitmap,
-      }
-    }
-    if (data.kind === "pixels") {
-      return {
-        command: "rendered",
-        keepAlive: data.keepAlive,
-        kind: "pixels",
-        pixels: data.pixels,
-        width: data.width,
-        height: data.height,
-      }
-    }
+  private toRenderResult(data: WorkerRenderedMessage): RenderResult {    
     return {
       command: "rendered",
       keepAlive: data.keepAlive,

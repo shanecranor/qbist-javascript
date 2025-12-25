@@ -26,7 +26,7 @@ interface RenderModeState {
 }
 
 interface RendererContext {
-  canvasId: string
+  canvasId: string | null
   canvas: OffscreenCanvas
   gl: WebGL2RenderingContext
   program: WebGLProgram
@@ -36,14 +36,6 @@ interface RendererContext {
   renderMode: RenderModeState
   formula: FormulaInfo | null
   pendingFrame: number | null
-}
-
-interface RegisterMessage {
-  type: "register"
-  canvasId: string
-  canvas: OffscreenCanvas
-  width: number
-  height: number
 }
 
 interface RenderPayload {
@@ -77,7 +69,6 @@ interface PingMessage {
 }
 
 type WorkerMessage =
-  | RegisterMessage
   | RenderMessage
   | UpdateMessage
   | CleanupMessage
@@ -102,12 +93,12 @@ type RenderedPixelsMessage = RenderedMessageBase & {
   height: number
 }
 
-type RenderedMessage =
+export type RenderedMessage =
   | RenderedMessageBase
   | RenderedBitmapMessage
   | RenderedPixelsMessage
 
-type ErrorMessage = {
+export type ErrorMessage = {
   command: "error"
   canvasId: string
   requestId: number
@@ -138,16 +129,56 @@ const cancelFrame: (handle: FrameHandle) => void =
     ? ctx.cancelAnimationFrame.bind(ctx)
     : (handle) => clearTimeout(handle)
 
-const contexts = new Map<string, RendererContext>()
+// Singleton Context
+let singletonContext: RendererContext | null = null
+
+function ensureSingletonContext(): RendererContext {
+  if (singletonContext) return singletonContext
+
+  // Create a default size canvas, it will be resized
+  const canvas = new OffscreenCanvas(256, 256)
+  
+  const gl = canvas.getContext("webgl2", {
+    antialias: true,
+    preserveDrawingBuffer: true,
+    alpha: false,
+    powerPreference: "high-performance",
+    failIfMajorPerformanceCaveat: false,
+    depth: false,
+    stencil: false,
+  }) as WebGL2RenderingContext | null
+
+  if (!gl) {
+    throw new Error("WebGL2 not available")
+  }
+
+  const program = createProgram(gl)
+  const { vao, positionBuffer } = initGeometry(gl, program)
+  const uniforms = initUniforms(gl, program)
+
+  gl.useProgram(program)
+
+  singletonContext = {
+    canvasId: null,
+    canvas,
+    gl,
+    program,
+    vao,
+    positionBuffer,
+    uniforms,
+    renderMode: { type: "interactive", keepAlive: false },
+    formula: null,
+    pendingFrame: null,
+  }
+
+  return singletonContext
+}
 
 ctx.addEventListener("message", (event: MessageEvent<WorkerMessage>) => {
   const message = event.data
 
   try {
     switch (message.type) {
-      case "register":
-        registerCanvas(message)
-        break
       case "render":
         handleRenderMessage(message)
         break
@@ -155,10 +186,9 @@ ctx.addEventListener("message", (event: MessageEvent<WorkerMessage>) => {
         handleRenderMessage(message)
         break
       case "cleanup":
-        if (message.canvasId) {
-          cleanupCanvas(message.canvasId)
-        } else {
-          cleanupAll()
+        if (singletonContext && singletonContext.pendingFrame !== null) {
+           cancelFrame(singletonContext.pendingFrame)
+           singletonContext.pendingFrame = null
         }
         break
       case "ping":
@@ -180,56 +210,11 @@ ctx.addEventListener("message", (event: MessageEvent<WorkerMessage>) => {
   }
 })
 
-function registerCanvas(message: RegisterMessage) {
-  const { canvasId, canvas, width, height } = message
-
-  cleanupCanvas(canvasId)
-
-  const gl = canvas.getContext("webgl2", {
-    antialias: true,
-    preserveDrawingBuffer: true,
-    alpha: false,
-    powerPreference: "high-performance",
-    failIfMajorPerformanceCaveat: false,
-    depth: false,
-    stencil: false,
-  }) as WebGL2RenderingContext | null
-
-  if (!gl) {
-    throw new Error("WebGL2 not available")
-  }
-
-  const program = createProgram(gl)
-  const { vao, positionBuffer } = initGeometry(gl, program)
-  const uniforms = initUniforms(gl, program)
-
-  canvas.width = width
-  canvas.height = height
-
-  gl.useProgram(program)
-  if (uniforms.uResolution) {
-    gl.uniform2i(uniforms.uResolution, width, height)
-  }
-
-  contexts.set(canvasId, {
-    canvasId,
-    canvas,
-    gl,
-    program,
-    vao,
-    positionBuffer,
-    uniforms,
-    renderMode: { type: "interactive", keepAlive: false },
-    formula: null,
-    pendingFrame: null,
-  })
-}
 
 function handleRenderMessage(message: RenderMessage | UpdateMessage) {
-  const context = contexts.get(message.canvasId)
-  if (!context) {
-    throw new Error(`Canvas ${message.canvasId} is not registered`)
-  }
+  const context = ensureSingletonContext()
+  
+  context.canvasId = message.canvasId
 
   if (context.pendingFrame !== null) {
     cancelFrame(context.pendingFrame)
@@ -282,14 +267,14 @@ function handleRenderMessage(message: RenderMessage | UpdateMessage) {
         })
         .catch((error: unknown) => {
           context.pendingFrame = null
-          sendRenderError(context.canvasId, requestId, error)
+          sendRenderError(context.canvasId!, requestId, error)
         })
     }
     context.pendingFrame = requestFrame(step)
   } else {
     void renderFrame(context, requestId, performance.now(), isExport).catch(
       (error: unknown) => {
-        sendRenderError(context.canvasId, requestId, error)
+        sendRenderError(context.canvasId!, requestId, error)
       }
     )
   }
@@ -314,20 +299,11 @@ async function renderFrame(
   gl.viewport(0, 0, context.canvas.width, context.canvas.height)
   gl.drawArrays(gl.TRIANGLES, 0, 6)
 
+  await exportFromContext(context, requestId)
+  
   if (renderMode.type === "export" || isExport) {
-    await exportFromContext(context, requestId)
-    context.renderMode = { type: "interactive", keepAlive: false }
-    return
+     context.renderMode = { type: "interactive", keepAlive: false }
   }
-
-  ctx.postMessage(
-    {
-      command: "rendered",
-      canvasId: context.canvasId,
-      requestId,
-      keepAlive: renderMode.keepAlive,
-    } satisfies RenderedMessage
-  )
 }
 
 function resizeCanvas(context: RendererContext, width: number, height: number) {
@@ -384,22 +360,21 @@ async function exportFromContext(context: RendererContext, requestId: number) {
   gl.finish()
 
   try {
-    const blob = await canvas.convertToBlob()
-    if (blob) {
-      const bitmap = await createImageBitmap(blob)
-      ctx.postMessage(
+    const bitmap = canvas.transferToImageBitmap()
+    
+    ctx.postMessage(
         {
           command: "rendered",
-          canvasId,
+          canvasId: canvasId!,
           requestId,
-          keepAlive: false,
+          keepAlive: context.renderMode.keepAlive,
           kind: "bitmap",
           bitmap,
         } satisfies RenderedBitmapMessage,
         [bitmap]
-      )
-      return
-    }
+    )
+    return
+    
   } catch (error) {
     console.warn("Falling back to raw pixel export", error)
   }
@@ -412,9 +387,9 @@ async function exportFromContext(context: RendererContext, requestId: number) {
   ctx.postMessage(
     {
       command: "rendered",
-      canvasId,
+      canvasId: canvasId!,
       requestId,
-      keepAlive: false,
+      keepAlive: context.renderMode.keepAlive,
       kind: "pixels",
       pixels: pixels.buffer,
       width,
@@ -422,31 +397,6 @@ async function exportFromContext(context: RendererContext, requestId: number) {
     } satisfies RenderedPixelsMessage,
     [pixels.buffer]
   )
-}
-
-function cleanupCanvas(canvasId: string) {
-  const context = contexts.get(canvasId)
-  if (!context) return
-
-  if (context.pendingFrame !== null) {
-    cancelFrame(context.pendingFrame)
-  }
-
-  const { gl, program, vao, positionBuffer } = context
-
-  const shaders = gl.getAttachedShaders(program)
-  if (shaders) {
-    shaders.forEach((shader) => gl.deleteShader(shader))
-  }
-  gl.deleteProgram(program)
-  gl.deleteVertexArray(vao)
-  gl.deleteBuffer(positionBuffer)
-
-  contexts.delete(canvasId)
-}
-
-function cleanupAll() {
-  Array.from(contexts.keys()).forEach((canvasId) => cleanupCanvas(canvasId))
 }
 
 function sendRenderError(canvasId: string, requestId: number, error: unknown) {

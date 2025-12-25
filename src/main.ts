@@ -230,13 +230,13 @@ export async function updateAll() {
     mainRenderPromise
       .then(() => {
         logDebug("updateAll:mainRenderResolved")
-        warmPreviewRenderers()
+        // Start previews with CPU for immediate feedback, then WebGL
         previewWarmupGeneration += 1
         const currentGeneration = previewWarmupGeneration
         for (let i = 0; i < 9; i++) {
-          void renderPreviewCpu(i)
-            .then(() => {
-              queuePreviewWarmup(i, currentGeneration)
+             void renderPreviewCpu(i)
+            .then(() => { 
+               queuePreviewWarmup(i, currentGeneration)
             })
             .catch((error) => {
               logDebug("updateAll:cpuPreviewError", { index: i, error })
@@ -245,7 +245,6 @@ export async function updateAll() {
       })
       .catch((err: unknown) => {
         logDebug("updateAll:mainRenderError", { error: err })
-        warmPreviewRenderers()
         previewWarmupGeneration += 1
         const currentGeneration = previewWarmupGeneration
         for (let i = 0; i < 9; i++) {
@@ -299,34 +298,6 @@ export async function updateAll() {
     }
     logDebug("updateAll:complete")
   }
-}
-
-function warmPreviewRenderers() {
-  const previewIds = [
-    "preview0",
-    "preview1",
-    "preview2",
-    "preview3",
-    "preview4",
-    "preview5",
-    "preview6",
-    "preview7",
-    "preview8",
-  ]
-
-  previewIds.forEach((id) => {
-    const canvas = document.getElementById(id)
-    if (!(canvas instanceof HTMLCanvasElement)) {
-      return
-    }
-
-    let renderer = renderers.get(canvas)
-    if (!renderer) {
-      renderer = new QbistRenderer(canvas)
-      renderers.set(canvas, renderer)
-      logDebug("warmPreviewRenderers:createdRenderer", { canvasId: id })
-    }
-  })
 }
 
 // Export functionality
