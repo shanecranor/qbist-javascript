@@ -78,10 +78,8 @@ let workerResponsivePromise: Promise<void> | null = null
 const rendererRegistry = new Map<string, QbistRenderer>()
 
 function rejectPendingPings(error: Error) {
-  pendingPings.forEach((pending, pingId) => {
-    if (pendingPings.has(pingId)) {
-      pending.reject(error)
-    }
+  pendingPings.forEach((pending) => {
+    pending.reject(error)
   })
   pendingPings.clear()
   workerResponsivePromise = null

@@ -29,6 +29,7 @@ export class PreviewCpuRenderer {
   private pendingJobs = new Map<number, PendingJob>()
   private disposed = false
   private objectUrlByCanvas = new Map<HTMLCanvasElement, string>()
+  private debug = false
 
   constructor() {
     this.worker = new CpuWorker()
@@ -77,20 +78,20 @@ export class PreviewCpuRenderer {
     if (this.disposed) return
 
     this.logDebug("cleanup:start")
+    this.disposed = true
 
     const trackedCanvases = Array.from(this.objectUrlByCanvas.keys())
     trackedCanvases.forEach((canvas) => this.releaseCanvas(canvas))
     this.objectUrlByCanvas.clear()
 
-    this.disposed = true
-    this.worker.removeEventListener("message", this.handleMessage)
-    this.worker.removeEventListener("error", this.handleError)
-    this.worker.terminate()
-
     this.pendingJobs.forEach(({ reject }) => {
       reject(new Error("Preview renderer disposed"))
     })
     this.pendingJobs.clear()
+
+    this.worker.removeEventListener("message", this.handleMessage)
+    this.worker.removeEventListener("error", this.handleError)
+    this.worker.terminate()
 
     this.logDebug("cleanup:complete")
   }
@@ -154,6 +155,7 @@ export class PreviewCpuRenderer {
   }
 
   private handleError = (event: ErrorEvent) => {
+    if (this.disposed) return
     const message = event.message || "Preview worker error"
     this.logDebug("worker:error", { message })
 
@@ -210,6 +212,7 @@ export class PreviewCpuRenderer {
   }
 
   private logDebug(message: string, details?: Record<string, unknown>) {
+    if (!this.debug) return
     const timestamp = new Date().toISOString()
     if (details) {
       console.log(`[${timestamp}] PreviewCpuRenderer:${message}`, details)

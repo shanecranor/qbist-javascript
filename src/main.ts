@@ -1,6 +1,6 @@
 import "./index.css"
 import "./reset.css"
-import { createInfo, modifyInfo } from "./qbist.ts"
+import { createInfo, modifyInfo, type FormulaInfo } from "./qbist.ts"
 import { loadStateFromParam } from "./qbistListeners.ts"
 import { QbistExporter } from "./QbistExporter"
 import { QbistRenderer } from "./QbistRenderer.ts"
@@ -177,7 +177,7 @@ function queuePreviewWarmup(index: number, generation: number) {
 }
 
 // --- Managing the 9-Panel Grid ---
-export const formulas = new Array(9)
+export const formulas: FormulaInfo[] = new Array(9)
 export const mainFormula = createInfo()
 const renderers = new Map<HTMLCanvasElement, QbistRenderer>()
 const exporter = new QbistExporter()
@@ -206,7 +206,7 @@ function getRenderer(canvas: HTMLCanvasElement) {
 // Draw the large main pattern and each preview
 export async function updateAll() {
   const mainCanvas = document.getElementById("mainPattern")
-  if (!(mainCanvas instanceof HTMLCanvasElement) || !mainCanvas) {
+  if (!(mainCanvas instanceof HTMLCanvasElement)) {
     throw new Error("Main canvas element not found or invalid")
   }
   const renderPromises = []
@@ -227,35 +227,29 @@ export async function updateAll() {
   renderPromises.push(mainRenderPromise)
 
   if (shouldShowInitialOverlay) {
+    function startPreviewsWithWarmup() {
+      previewWarmupGeneration += 1
+      const currentGeneration = previewWarmupGeneration
+      for (let i = 0; i < 9; i++) {
+        void renderPreviewCpu(i)
+          .then(() => {
+            queuePreviewWarmup(i, currentGeneration)
+          })
+          .catch((error) => {
+            logDebug("updateAll:cpuPreviewError", { index: i, error })
+          })
+      }
+    }
+
     mainRenderPromise
       .then(() => {
         logDebug("updateAll:mainRenderResolved")
         // Start previews with CPU for immediate feedback, then WebGL
-        previewWarmupGeneration += 1
-        const currentGeneration = previewWarmupGeneration
-        for (let i = 0; i < 9; i++) {
-             void renderPreviewCpu(i)
-            .then(() => { 
-               queuePreviewWarmup(i, currentGeneration)
-            })
-            .catch((error) => {
-              logDebug("updateAll:cpuPreviewError", { index: i, error })
-            })
-        }
+        startPreviewsWithWarmup()
       })
       .catch((err: unknown) => {
         logDebug("updateAll:mainRenderError", { error: err })
-        previewWarmupGeneration += 1
-        const currentGeneration = previewWarmupGeneration
-        for (let i = 0; i < 9; i++) {
-          void renderPreviewCpu(i)
-            .then(() => {
-              queuePreviewWarmup(i, currentGeneration)
-            })
-            .catch((error) => {
-              logDebug("updateAll:cpuPreviewError", { index: i, error })
-            })
-        }
+        startPreviewsWithWarmup()
       })
   } else {
     previewWarmupGeneration += 1

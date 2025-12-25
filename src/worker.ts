@@ -40,7 +40,8 @@ ctx.addEventListener("message", (event: MessageEvent<WorkerMessage>) => {
 
   for (let y = 0; y < height; y++) {
     const progress = Math.floor((y / height) * 100)
-    if (height > 256) {
+    const reportInterval = Math.max(1, Math.ceil(height / 20)) // Report roughly 20 times per image
+    if (y % reportInterval === 0) {
       ctx.postMessage({ command: "progress", requestId, progress } satisfies ProgressMessage)
     }
     for (let x = 0; x < width; x++) {

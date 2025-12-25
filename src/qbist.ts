@@ -46,7 +46,7 @@ export function createInfo() {
 }
 
 // Modify an existing formula by making random changes.
-export function modifyInfo(oldInfo: FormulaInfo) {
+export function modifyInfo(oldInfo: FormulaInfo): FormulaInfo {
   const newInfo = {
     transformSequence: oldInfo.transformSequence.slice(),
     source: oldInfo.source.slice(),

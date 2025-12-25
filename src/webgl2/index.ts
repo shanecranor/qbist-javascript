@@ -1,4 +1,5 @@
 import { createInfo } from "../qbist.ts"
+import { isFormulaInfo } from "../qbistListeners.ts"
 import WebGlWorker from "../workerWebGL.ts?worker"
 
 const urlParams = new URLSearchParams(window.location.search)
@@ -8,12 +9,7 @@ if (urlParams.has("state")) {
   try {
     const stateJSON = atob(urlParams.get("state") || "")
     const stateObj = JSON.parse(stateJSON)
-    if (
-      stateObj.transformSequence &&
-      stateObj.source &&
-      stateObj.control &&
-      stateObj.dest
-    ) {
+    if (isFormulaInfo(stateObj)) {
       info = stateObj
     }
   } catch (e) {

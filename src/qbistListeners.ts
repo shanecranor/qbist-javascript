@@ -14,7 +14,7 @@ import {
 
 const EXPECTED_GIMP_BUFFER_SIZE = 288
 
-function isFormulaInfo(value: unknown): value is FormulaInfo {
+export function isFormulaInfo(value: unknown): value is FormulaInfo {
   if (!value || typeof value !== "object") {
     return false
   }
@@ -95,12 +95,13 @@ function exportToGimp(): void {
     link.href = url
     link.download = "pattern.qbe"
     document.body.appendChild(link)
-    link.click()
-  } finally {
-    document.body.removeChild(link)
-    URL.revokeObjectURL(url)
+      link.click()
+    } finally {
+      document.body.removeChild(link)
+      // Delay revocation to ensure download completes in all browsers
+      setTimeout(() => URL.revokeObjectURL(url), 1000)
+    }
   }
-}
 
 function importFromGimp(): void {
   const input = document.createElement("input")
@@ -195,7 +196,7 @@ function downloadListener(): void {
     return
   }
 
-  downloadImage(outputWidth, outputHeight, oversampling)
+  void downloadImage(outputWidth, outputHeight, oversampling)
 }
 
 const downloadButton = document.getElementById("downloadButton")
