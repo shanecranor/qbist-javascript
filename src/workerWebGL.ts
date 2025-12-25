@@ -71,11 +71,17 @@ interface CleanupMessage {
   canvasId?: string
 }
 
+interface PingMessage {
+  type: "ping"
+  pingId: number
+}
+
 type WorkerMessage =
   | RegisterMessage
   | RenderMessage
   | UpdateMessage
   | CleanupMessage
+  | PingMessage
 
 type RenderedMessageBase = {
   command: "rendered"
@@ -154,6 +160,9 @@ ctx.addEventListener("message", (event: MessageEvent<WorkerMessage>) => {
         } else {
           cleanupAll()
         }
+        break
+      case "ping":
+        ctx.postMessage({ command: "pong", pingId: message.pingId })
         break
     }
   } catch (error) {

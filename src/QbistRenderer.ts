@@ -42,7 +42,15 @@ type WorkerErrorMessage = {
   message: string
 }
 
-type WorkerMessageData = WorkerRenderedMessage | WorkerErrorMessage
+type WorkerPongMessage = {
+  command: "pong"
+  pingId: number
+}
+
+type WorkerMessageData =
+  | WorkerRenderedMessage
+  | WorkerErrorMessage
+  | WorkerPongMessage
 
 interface PendingRequest {
   resolve: (result: RenderResult) => void
@@ -53,12 +61,32 @@ interface PendingRequest {
 
 const rendererRegistry = new Map<string, QbistRenderer>()
 
+interface PendingPing {
+  resolve: () => void
+  reject: (error: Error) => void
+}
+
 let sharedWorker: Worker | null = null
 let workerMessageListener: ((event: MessageEvent<WorkerMessageData>) => void) | null =
   null
 let workerErrorListener: ((event: ErrorEvent) => void) | null = null
 let nextRequestId = 1
 let nextRendererId = 1
+let nextPingId = 1
+const pendingPings = new Map<number, PendingPing>()
+let workerResponsive = false
+let workerResponsivePromise: Promise<void> | null = null
+
+function rejectPendingPings(error: Error) {
+  pendingPings.forEach((pending, pingId) => {
+    if (pendingPings.has(pingId)) {
+      pending.reject(error)
+    }
+  })
+  pendingPings.clear()
+  workerResponsivePromise = null
+  workerResponsive = false
+}
 
 function ensureSharedWorker(): Worker {
   if (!sharedWorker) {
@@ -69,6 +97,13 @@ function ensureSharedWorker(): Worker {
     workerMessageListener = (event: MessageEvent<WorkerMessageData>) => {
       const data = event.data
       if (!data || typeof data !== "object") return
+      if ("command" in data && data.command === "pong") {
+        const pending = pendingPings.get(data.pingId)
+        if (pending) {
+          pending.resolve()
+        }
+        return
+      }
       const canvasId = "canvasId" in data ? data.canvasId : undefined
       if (!canvasId) return
       const renderer = rendererRegistry.get(canvasId)
@@ -76,6 +111,8 @@ function ensureSharedWorker(): Worker {
     }
     workerErrorListener = (event: ErrorEvent) => {
       console.error("WebGL worker error:", event.message, event.error)
+      const error = new Error(event.message || "WebGL worker error")
+      rejectPendingPings(error)
       rendererRegistry.forEach((renderer) => renderer.handleWorkerFailure())
     }
     sharedWorker.addEventListener("message", workerMessageListener)
@@ -115,6 +152,55 @@ export class QbistRenderer {
     console.log(
       `[Canvas Create] Created renderer for canvas ${canvas.id || this.rendererId}`
     )
+  }
+
+  static ensureWorkerResponsive(timeout = 1000): Promise<void> {
+    if (workerResponsive) {
+      return Promise.resolve()
+    }
+    if (workerResponsivePromise) {
+      return workerResponsivePromise
+    }
+
+    const worker = ensureSharedWorker()
+    const pingId = nextPingId++
+
+    workerResponsivePromise = new Promise<void>((resolve, reject) => {
+      const timeoutError = new Error("WebGL worker unresponsive")
+      const timer = setTimeout(() => {
+        const pending = pendingPings.get(pingId)
+        if (pending) {
+          pending.reject(timeoutError)
+        }
+      }, timeout)
+
+      const pending: PendingPing = {
+        resolve: () => {
+          clearTimeout(timer)
+          pendingPings.delete(pingId)
+          workerResponsive = true
+          workerResponsivePromise = null
+          resolve()
+        },
+        reject: (error: Error) => {
+          clearTimeout(timer)
+          pendingPings.delete(pingId)
+          workerResponsive = false
+          workerResponsivePromise = null
+          reject(error)
+        },
+      }
+
+      pendingPings.set(pingId, pending)
+
+      try {
+        worker.postMessage({ type: "ping", pingId })
+      } catch (error) {
+        pending.reject(error instanceof Error ? error : new Error(String(error)))
+      }
+    })
+
+    return workerResponsivePromise
   }
 
   async render(
@@ -211,6 +297,7 @@ export class QbistRenderer {
 
     if (rendererRegistry.size === 0 && sharedWorker) {
       sharedWorker.postMessage({ type: "cleanup" })
+      rejectPendingPings(new Error("WebGL worker terminated"))
       if (workerMessageListener) {
         sharedWorker.removeEventListener("message", workerMessageListener)
         workerMessageListener = null
@@ -272,6 +359,12 @@ export class QbistRenderer {
     this.activeRequestId = null
     this.isRegistered = false
     this.worker = null
+    if (pendingPings.size > 0) {
+      rejectPendingPings(new Error("WebGL worker failed"))
+    } else {
+      workerResponsivePromise = null
+      workerResponsive = false
+    }
     const overlay = document.getElementById("loadingOverlay")
     if (overlay) overlay.style.display = "none"
   }
