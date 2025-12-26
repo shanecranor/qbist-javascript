@@ -6,6 +6,10 @@ This is a JavaScript port of the Qbist plugin for gimp written in C. When I firs
 
 Hosting link here! (TODO)
 
+## Benchmarking
+
+Run `npm run dev` and open `http://localhost:5500/benchmark.html` to measure render times at several resolutions. Pass a `state` query parameter from the main app to benchmark a specific formula.
+
 # Info from the original source code:
 
 Source code can be found here: https://github.com/GNOME/gimp/blob/master/plug-ins/common/qbist.c
