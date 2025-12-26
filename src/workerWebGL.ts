@@ -38,6 +38,7 @@ interface RendererContext {
   pendingFrame: number | null
   fpsLastTime: number
   fpsFrameCount: number
+  isExternalCanvas: boolean
 }
 
 interface RenderPayload {
@@ -184,6 +185,7 @@ function ensureSingletonContext(canvas?: OffscreenCanvas): RendererContext {
     pendingFrame: null,
     fpsLastTime: performance.now(),
     fpsFrameCount: 0,
+    isExternalCanvas: !!canvas,
   }
 
   return singletonContext
@@ -241,7 +243,7 @@ function handleInitMessage(message: InitMessage) {
   handleRenderMessage({
     type: 'render',
     requestId,
-    canvasId: 'animation',
+    canvasId: 'external',
     width: message.width,
     height: message.height,
     info: message.info,
@@ -252,7 +254,9 @@ function handleInitMessage(message: InitMessage) {
 function handleRenderMessage(message: RenderMessage | UpdateMessage) {
   const context = ensureSingletonContext()
 
-  context.canvasId = message.canvasId
+  if (message.canvasId) {
+    context.canvasId = message.canvasId
+  }
 
   if (context.pendingFrame !== null) {
     cancelFrame(context.pendingFrame)
@@ -407,8 +411,13 @@ function uploadFormula(context: RendererContext, info: FormulaInfo) {
 }
 
 async function exportFromContext(context: RendererContext, requestId: number) {
-  const { gl, canvas, canvasId } = context
+  const { gl, canvas, canvasId, renderMode, isExternalCanvas } = context
   gl.finish()
+
+  // don't transfer the bitmap out as it would consume the buffer and leave the displayed canvas black.
+  if (isExternalCanvas && renderMode.type !== 'export') {
+    return
+  }
 
   try {
     const bitmap = canvas.transferToImageBitmap()
