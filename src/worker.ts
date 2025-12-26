@@ -1,10 +1,10 @@
 /// <reference lib="webworker" />
 
-import { optimize, qbist } from "./qbist.ts"
-import type { FormulaInfo } from "./qbist.ts"
+import { optimize, qbist } from './qbist.ts'
+import type { FormulaInfo } from './qbist.ts'
 
 type RenderCommandMessage = {
-  command: "render"
+  command: 'render'
   requestId: number
   info: FormulaInfo
   width: number
@@ -15,13 +15,13 @@ type RenderCommandMessage = {
 type WorkerMessage = RenderCommandMessage
 
 type ProgressMessage = {
-  command: "progress"
+  command: 'progress'
   requestId: number
   progress: number
 }
 
 type RenderedMessage = {
-  command: "rendered"
+  command: 'rendered'
   requestId: number
   imageData: ArrayBuffer
   width: number
@@ -30,9 +30,9 @@ type RenderedMessage = {
 
 const ctx = self as DedicatedWorkerGlobalScope
 
-ctx.addEventListener("message", (event: MessageEvent<WorkerMessage>) => {
+ctx.addEventListener('message', (event: MessageEvent<WorkerMessage>) => {
   const data = event.data
-  if (data.command !== "render") return
+  if (data.command !== 'render') return
 
   const { requestId, info, width, height, oversampling = 1 } = data
   const { usedTransFlag, usedRegFlag } = optimize(info)
@@ -42,7 +42,11 @@ ctx.addEventListener("message", (event: MessageEvent<WorkerMessage>) => {
     const progress = Math.floor((y / height) * 100)
     const reportInterval = Math.max(1, Math.ceil(height / 20)) // Report roughly 20 times per image
     if (y % reportInterval === 0) {
-      ctx.postMessage({ command: "progress", requestId, progress } satisfies ProgressMessage)
+      ctx.postMessage({
+        command: 'progress',
+        requestId,
+        progress,
+      } satisfies ProgressMessage)
     }
     for (let x = 0; x < width; x++) {
       const color = qbist(
@@ -53,7 +57,7 @@ ctx.addEventListener("message", (event: MessageEvent<WorkerMessage>) => {
         height,
         oversampling,
         usedTransFlag,
-        usedRegFlag
+        usedRegFlag,
       )
       const r = Math.floor(color[0] * 255)
       const g = Math.floor(color[1] * 255)
@@ -68,13 +72,13 @@ ctx.addEventListener("message", (event: MessageEvent<WorkerMessage>) => {
 
   ctx.postMessage(
     {
-      command: "rendered",
+      command: 'rendered',
       requestId,
       imageData: buffer.buffer,
       width,
       height,
     } satisfies RenderedMessage,
-    [buffer.buffer]
+    [buffer.buffer],
   )
 })
 

@@ -1,24 +1,24 @@
 /// <reference lib="webworker" />
 
-import { optimize, type FormulaInfo } from "./qbist.ts"
+import { optimize, type FormulaInfo } from './qbist.ts'
 
 const ctx = self as DedicatedWorkerGlobalScope
 
 type UniformArrayName =
-  | "uTransformSequence"
-  | "uSource"
-  | "uControl"
-  | "uDest"
-  | "uUsedTransFlag"
-  | "uUsedRegFlag"
+  | 'uTransformSequence'
+  | 'uSource'
+  | 'uControl'
+  | 'uDest'
+  | 'uUsedTransFlag'
+  | 'uUsedRegFlag'
 
-type UniformScalarName = "uResolution" | "uTime"
+type UniformScalarName = 'uResolution' | 'uTime'
 
 type RendererUniformName = UniformArrayName | UniformScalarName
 
 type RendererUniforms = Record<RendererUniformName, WebGLUniformLocation | null>
 
-type RenderModeType = "interactive" | "export" | "animation"
+type RenderModeType = 'interactive' | 'export' | 'animation'
 
 interface RenderModeState {
   type: RenderModeType
@@ -49,22 +49,22 @@ interface RenderPayload {
 }
 
 interface RenderMessage extends RenderPayload {
-  type: "render"
+  type: 'render'
   requestId: number
 }
 
 interface UpdateMessage extends RenderPayload {
-  type: "update"
+  type: 'update'
   requestId?: number
 }
 
 interface CleanupMessage {
-  type: "cleanup"
+  type: 'cleanup'
   canvasId?: string
 }
 
 interface PingMessage {
-  type: "ping"
+  type: 'ping'
   pingId: number
 }
 
@@ -75,19 +75,19 @@ type WorkerMessage =
   | PingMessage
 
 type RenderedMessageBase = {
-  command: "rendered"
+  command: 'rendered'
   canvasId: string
   requestId: number
   keepAlive: boolean
 }
 
 type RenderedBitmapMessage = RenderedMessageBase & {
-  kind: "bitmap"
+  kind: 'bitmap'
   bitmap: ImageBitmap
 }
 
 type RenderedPixelsMessage = RenderedMessageBase & {
-  kind: "pixels"
+  kind: 'pixels'
   pixels: ArrayBuffer
   width: number
   height: number
@@ -99,33 +99,33 @@ export type RenderedMessage =
   | RenderedPixelsMessage
 
 export type ErrorMessage = {
-  command: "error"
+  command: 'error'
   canvasId: string
   requestId: number
   message: string
 }
 
 const arrayUniforms: UniformArrayName[] = [
-  "uTransformSequence",
-  "uSource",
-  "uControl",
-  "uDest",
-  "uUsedTransFlag",
-  "uUsedRegFlag",
+  'uTransformSequence',
+  'uSource',
+  'uControl',
+  'uDest',
+  'uUsedTransFlag',
+  'uUsedRegFlag',
 ]
 
-const scalarUniforms: UniformScalarName[] = ["uResolution", "uTime"]
+const scalarUniforms: UniformScalarName[] = ['uResolution', 'uTime']
 
 type FrameHandle = number
 type FrameScheduler = (callback: (time: number) => void) => FrameHandle
 
 const requestFrame: FrameScheduler =
-  typeof ctx.requestAnimationFrame === "function"
+  typeof ctx.requestAnimationFrame === 'function'
     ? ctx.requestAnimationFrame.bind(ctx)
     : (callback) => setTimeout(() => callback(performance.now()), 16)
 
 const cancelFrame: (handle: FrameHandle) => void =
-  typeof ctx.cancelAnimationFrame === "function"
+  typeof ctx.cancelAnimationFrame === 'function'
     ? ctx.cancelAnimationFrame.bind(ctx)
     : (handle) => clearTimeout(handle)
 
@@ -137,19 +137,19 @@ function ensureSingletonContext(): RendererContext {
 
   // Create a default size canvas, it will be resized
   const canvas = new OffscreenCanvas(256, 256)
-  
-  const gl = canvas.getContext("webgl2", {
+
+  const gl = canvas.getContext('webgl2', {
     antialias: true,
     preserveDrawingBuffer: true,
     alpha: false,
-    powerPreference: "high-performance",
+    powerPreference: 'high-performance',
     failIfMajorPerformanceCaveat: false,
     depth: false,
     stencil: false,
   }) as WebGL2RenderingContext | null
 
   if (!gl) {
-    throw new Error("WebGL2 not available")
+    throw new Error('WebGL2 not available')
   }
 
   const program = createProgram(gl)
@@ -166,7 +166,7 @@ function ensureSingletonContext(): RendererContext {
     vao,
     positionBuffer,
     uniforms,
-    renderMode: { type: "interactive", keepAlive: false },
+    renderMode: { type: 'interactive', keepAlive: false },
     formula: null,
     pendingFrame: null,
   }
@@ -174,46 +174,45 @@ function ensureSingletonContext(): RendererContext {
   return singletonContext
 }
 
-ctx.addEventListener("message", (event: MessageEvent<WorkerMessage>) => {
+ctx.addEventListener('message', (event: MessageEvent<WorkerMessage>) => {
   const message = event.data
 
   try {
     switch (message.type) {
-      case "render":
+      case 'render':
         handleRenderMessage(message)
         break
-      case "update":
+      case 'update':
         handleRenderMessage(message)
         break
-      case "cleanup":
+      case 'cleanup':
         if (singletonContext && singletonContext.pendingFrame !== null) {
-           cancelFrame(singletonContext.pendingFrame)
-           singletonContext.pendingFrame = null
+          cancelFrame(singletonContext.pendingFrame)
+          singletonContext.pendingFrame = null
         }
         break
-      case "ping":
-        ctx.postMessage({ command: "pong", pingId: message.pingId })
+      case 'ping':
+        ctx.postMessage({ command: 'pong', pingId: message.pingId })
         break
     }
   } catch (error) {
     const err = error instanceof Error ? error : new Error(String(error))
-    console.error("Worker error:", err)
+    console.error('Worker error:', err)
     const canvasId =
-      "canvasId" in message && typeof message.canvasId === "string"
+      'canvasId' in message && typeof message.canvasId === 'string'
         ? message.canvasId
-        : "unknown"
+        : 'unknown'
     const requestId =
-      "requestId" in message && typeof message.requestId === "number"
+      'requestId' in message && typeof message.requestId === 'number'
         ? message.requestId
         : -1
     sendRenderError(canvasId, requestId, err)
   }
 })
 
-
 function handleRenderMessage(message: RenderMessage | UpdateMessage) {
   const context = ensureSingletonContext()
-  
+
   context.canvasId = message.canvasId
 
   if (context.pendingFrame !== null) {
@@ -222,11 +221,11 @@ function handleRenderMessage(message: RenderMessage | UpdateMessage) {
   }
 
   const requestId =
-    "requestId" in message && typeof message.requestId === "number"
+    'requestId' in message && typeof message.requestId === 'number'
       ? message.requestId
       : 0
 
-  if (typeof message.width === "number" && typeof message.height === "number") {
+  if (typeof message.width === 'number' && typeof message.height === 'number') {
     resizeCanvas(context, message.width, message.height)
   }
 
@@ -235,31 +234,34 @@ function handleRenderMessage(message: RenderMessage | UpdateMessage) {
   }
 
   if (!context.formula) {
-    throw new Error("No formula provided for rendering")
+    throw new Error('No formula provided for rendering')
   }
 
   const keepAlive =
-    typeof message.keepAlive === "boolean"
+    typeof message.keepAlive === 'boolean'
       ? message.keepAlive
       : context.renderMode.keepAlive
 
   const isExport = Boolean(message.isExport)
   const renderType: RenderModeType = isExport
-    ? "export"
+    ? 'export'
     : keepAlive
-    ? "animation"
-    : "interactive"
+      ? 'animation'
+      : 'interactive'
 
   context.renderMode = {
     type: renderType,
     keepAlive,
   }
 
-  if (context.renderMode.type === "animation") {
+  if (context.renderMode.type === 'animation') {
     const step = (time: number) => {
       void renderFrame(context, requestId, time, isExport)
         .then(() => {
-          if (context.renderMode.type === "animation" && context.renderMode.keepAlive) {
+          if (
+            context.renderMode.type === 'animation' &&
+            context.renderMode.keepAlive
+          ) {
             context.pendingFrame = requestFrame(step)
           } else {
             context.pendingFrame = null
@@ -275,7 +277,7 @@ function handleRenderMessage(message: RenderMessage | UpdateMessage) {
     void renderFrame(context, requestId, performance.now(), isExport).catch(
       (error: unknown) => {
         sendRenderError(context.canvasId!, requestId, error)
-      }
+      },
     )
   }
 }
@@ -284,7 +286,7 @@ async function renderFrame(
   context: RendererContext,
   requestId: number,
   timestamp: number,
-  isExport: boolean
+  isExport: boolean,
 ) {
   const { gl, program, vao, uniforms, renderMode } = context
 
@@ -292,7 +294,7 @@ async function renderFrame(
   gl.bindVertexArray(vao)
 
   if (uniforms.uTime) {
-    const timeValue = renderMode.type === "animation" ? timestamp * 0.001 : 0
+    const timeValue = renderMode.type === 'animation' ? timestamp * 0.001 : 0
     gl.uniform1f(uniforms.uTime, timeValue)
   }
 
@@ -300,9 +302,9 @@ async function renderFrame(
   gl.drawArrays(gl.TRIANGLES, 0, 6)
 
   await exportFromContext(context, requestId)
-  
-  if (renderMode.type === "export" || isExport) {
-     context.renderMode = { type: "interactive", keepAlive: false }
+
+  if (renderMode.type === 'export' || isExport) {
+    context.renderMode = { type: 'interactive', keepAlive: false }
   }
 }
 
@@ -327,7 +329,7 @@ function uploadFormula(context: RendererContext, info: FormulaInfo) {
   if (uniforms.uTransformSequence) {
     gl.uniform1iv(
       uniforms.uTransformSequence,
-      new Int32Array(info.transformSequence)
+      new Int32Array(info.transformSequence),
     )
   }
   if (uniforms.uSource) {
@@ -342,13 +344,13 @@ function uploadFormula(context: RendererContext, info: FormulaInfo) {
   if (uniforms.uUsedTransFlag) {
     gl.uniform1iv(
       uniforms.uUsedTransFlag,
-      new Int32Array(usedTransFlag.map((flag) => (flag ? 1 : 0)))
+      new Int32Array(usedTransFlag.map((flag) => (flag ? 1 : 0))),
     )
   }
   if (uniforms.uUsedRegFlag) {
     gl.uniform1iv(
       uniforms.uUsedRegFlag,
-      new Int32Array(usedRegFlag.map((flag) => (flag ? 1 : 0)))
+      new Int32Array(usedRegFlag.map((flag) => (flag ? 1 : 0))),
     )
   }
 
@@ -361,22 +363,21 @@ async function exportFromContext(context: RendererContext, requestId: number) {
 
   try {
     const bitmap = canvas.transferToImageBitmap()
-    
+
     ctx.postMessage(
-        {
-          command: "rendered",
-          canvasId: canvasId!,
-          requestId,
-          keepAlive: context.renderMode.keepAlive,
-          kind: "bitmap",
-          bitmap,
-        } satisfies RenderedBitmapMessage,
-        [bitmap]
+      {
+        command: 'rendered',
+        canvasId: canvasId!,
+        requestId,
+        keepAlive: context.renderMode.keepAlive,
+        kind: 'bitmap',
+        bitmap,
+      } satisfies RenderedBitmapMessage,
+      [bitmap],
     )
     return
-    
   } catch (error) {
-    console.warn("Falling back to raw pixel export", error)
+    console.warn('Falling back to raw pixel export', error)
   }
 
   const width = canvas.width
@@ -386,23 +387,23 @@ async function exportFromContext(context: RendererContext, requestId: number) {
 
   ctx.postMessage(
     {
-      command: "rendered",
+      command: 'rendered',
       canvasId: canvasId!,
       requestId,
       keepAlive: context.renderMode.keepAlive,
-      kind: "pixels",
+      kind: 'pixels',
       pixels: pixels.buffer,
       width,
       height,
     } satisfies RenderedPixelsMessage,
-    [pixels.buffer]
+    [pixels.buffer],
   )
 }
 
 function sendRenderError(canvasId: string, requestId: number, error: unknown) {
   const message = error instanceof Error ? error.message : String(error)
   ctx.postMessage({
-    command: "error",
+    command: 'error',
     canvasId,
     requestId,
     message,
@@ -497,7 +498,7 @@ function createProgram(gl: WebGL2RenderingContext): WebGLProgram {
 
   const program = gl.createProgram()
   if (!program) {
-    throw new Error("Failed to create WebGL program")
+    throw new Error('Failed to create WebGL program')
   }
 
   gl.attachShader(program, vertexShader)
@@ -505,7 +506,8 @@ function createProgram(gl: WebGL2RenderingContext): WebGLProgram {
   gl.linkProgram(program)
 
   if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
-    const infoLog = gl.getProgramInfoLog(program) ?? "Unknown program link error"
+    const infoLog =
+      gl.getProgramInfoLog(program) ?? 'Unknown program link error'
     gl.deleteShader(vertexShader)
     gl.deleteShader(fragmentShader)
     gl.deleteProgram(program)
@@ -521,55 +523,48 @@ function createProgram(gl: WebGL2RenderingContext): WebGLProgram {
 function compileShader(
   gl: WebGL2RenderingContext,
   type: number,
-  source: string
+  source: string,
 ) {
   const shader = gl.createShader(type)
   if (!shader) {
-    throw new Error("Failed to create shader")
+    throw new Error('Failed to create shader')
   }
   gl.shaderSource(shader, source)
   gl.compileShader(shader)
   if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
-    const infoLog = gl.getShaderInfoLog(shader) ?? "Unknown shader compile error"
+    const infoLog =
+      gl.getShaderInfoLog(shader) ?? 'Unknown shader compile error'
     gl.deleteShader(shader)
     throw new Error(infoLog)
   }
   return shader
 }
 
-function initGeometry(
-  gl: WebGL2RenderingContext,
-  program: WebGLProgram
-) {
+function initGeometry(gl: WebGL2RenderingContext, program: WebGLProgram) {
   const quadVertices = new Float32Array([
-    -1, -1,
-    1, -1,
-    -1, 1,
-    -1, 1,
-    1, -1,
-    1, 1,
+    -1, -1, 1, -1, -1, 1, -1, 1, 1, -1, 1, 1,
   ])
 
   const vao = gl.createVertexArray()
   if (!vao) {
-    throw new Error("Failed to create vertex array object")
+    throw new Error('Failed to create vertex array object')
   }
   gl.bindVertexArray(vao)
 
   const positionBuffer = gl.createBuffer()
   if (!positionBuffer) {
     gl.deleteVertexArray(vao)
-    throw new Error("Failed to create position buffer")
+    throw new Error('Failed to create position buffer')
   }
 
   gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer)
   gl.bufferData(gl.ARRAY_BUFFER, quadVertices, gl.STATIC_DRAW)
 
-  const positionLocation = gl.getAttribLocation(program, "aPosition")
+  const positionLocation = gl.getAttribLocation(program, 'aPosition')
   if (positionLocation === -1) {
     gl.deleteVertexArray(vao)
     gl.deleteBuffer(positionBuffer)
-    throw new Error("Failed to get attribute location for aPosition")
+    throw new Error('Failed to get attribute location for aPosition')
   }
 
   gl.enableVertexAttribArray(positionLocation)
@@ -580,7 +575,7 @@ function initGeometry(
 
 function initUniforms(
   gl: WebGL2RenderingContext,
-  program: WebGLProgram
+  program: WebGLProgram,
 ): RendererUniforms {
   const uniforms: RendererUniforms = {
     uResolution: null,

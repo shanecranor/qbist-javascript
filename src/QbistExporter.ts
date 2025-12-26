@@ -1,5 +1,5 @@
-import type { FormulaInfo } from "./qbist.ts"
-import { QbistRenderer } from "./QbistRenderer.ts"
+import type { FormulaInfo } from './qbist.ts'
+import { QbistRenderer } from './QbistRenderer.ts'
 
 export class QbistExporter {
   exportCanvas: HTMLCanvasElement | null
@@ -13,8 +13,8 @@ export class QbistExporter {
   async exportImage(info: FormulaInfo, width: number, height: number) {
     try {
       this.cleanup()
-      this.exportCanvas = document.createElement("canvas")
-      this.exportCanvas.id = "exportCanvas"
+      this.exportCanvas = document.createElement('canvas')
+      this.exportCanvas.id = 'exportCanvas'
       this.exportCanvas.width = width
       this.exportCanvas.height = height
       document.body.appendChild(this.exportCanvas)
@@ -26,14 +26,13 @@ export class QbistExporter {
       })
 
       // At this point, the renderer has drawn the image onto the canvas.
-      const dataUrl = this.exportCanvas.toDataURL("image/png")
-      const link = document.createElement("a")
+      const dataUrl = this.exportCanvas.toDataURL('image/png')
+      const link = document.createElement('a')
       link.href = dataUrl
-      link.download = "qbist.png"
+      link.download = 'qbist.png'
       document.body.appendChild(link)
       link.click()
       document.body.removeChild(link)
-      
     } finally {
       this.cleanup()
     }
@@ -51,4 +50,3 @@ export class QbistExporter {
     }
   }
 }
-

@@ -59,19 +59,19 @@ export function modifyInfo(oldInfo: FormulaInfo): FormulaInfo {
       case 0:
         newInfo.transformSequence[randomInt(0, MAX_TRANSFORMS)] = randomInt(
           0,
-          NUM_TRANSFORM_TYPES
+          NUM_TRANSFORM_TYPES,
         )
         break
       case 1:
         newInfo.source[randomInt(0, MAX_TRANSFORMS)] = randomInt(
           0,
-          NUM_REGISTERS
+          NUM_REGISTERS,
         )
         break
       case 2:
         newInfo.control[randomInt(0, MAX_TRANSFORMS)] = randomInt(
           0,
-          NUM_REGISTERS
+          NUM_REGISTERS,
         )
         break
       case 3:
@@ -123,7 +123,7 @@ export function qbist(
   height: number,
   oversampling: number,
   usedTransFlag: boolean[],
-  usedRegFlag: boolean[]
+  usedRegFlag: boolean[],
 ) {
   const accum = [0, 0, 0]
   for (let yy = 0; yy < oversampling; yy++) {
@@ -253,14 +253,14 @@ export function importFromGimpFormat(buffer: ArrayBuffer) {
     throw new RangeError(
       `Expected ${MAX_TRANSFORMS * 2 * 4} byte GIMP Qbist buffer, got ${
         buffer.byteLength
-      }`
+      }`,
     )
   }
   // Read each array as 16-bit big-endian integers
   for (let i = 0; i < MAX_TRANSFORMS; i++) {
     // transformSequence (first 72 bytes)
     info.transformSequence.push(
-      view.getUint16(i * 2, false) % NUM_TRANSFORM_TYPES
+      view.getUint16(i * 2, false) % NUM_TRANSFORM_TYPES,
     )
 
     // source (next 72 bytes)
