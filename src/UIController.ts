@@ -31,6 +31,7 @@ export class UIController {
 
   private initialize() {
     this.setupUrlHandling()
+    this.setupOverlay()
     this.setupGridListeners()
     this.setupActionListeners()
     this.setupNavLinks()
@@ -239,5 +240,47 @@ export class UIController {
       }
     }
     input.click()
+  }
+
+  // --- Overlay Management ---
+
+  private loadingOverlay: HTMLElement | null = null
+  private loadingText: HTMLElement | null = null
+  private defaultLoadingText = ''
+  private initialOverlayTimer: number | null = null
+
+  private setupOverlay() {
+    this.loadingOverlay = document.getElementById('loadingOverlay')
+    this.loadingText = document.getElementById('loadingText')
+    if (this.loadingOverlay && this.loadingText) {
+      this.defaultLoadingText = this.loadingText.textContent ?? ''
+      this.loadingOverlay.style.display = 'none'
+    }
+  }
+
+  scheduleInitialLoadingOverlay() {
+    if (
+      this.initialOverlayTimer !== null ||
+      !this.loadingOverlay ||
+      !this.loadingText
+    )
+      return
+    this.initialOverlayTimer = window.setTimeout(() => {
+      if (this.loadingText && this.loadingOverlay) {
+        this.loadingText.textContent = 'Preparing WebGL renderer'
+        this.loadingOverlay.style.display = 'flex'
+      }
+    }, 200)
+  }
+
+  clearInitialLoadingOverlay() {
+    if (this.initialOverlayTimer !== null) {
+      window.clearTimeout(this.initialOverlayTimer)
+      this.initialOverlayTimer = null
+    }
+    if (this.loadingOverlay && this.loadingText) {
+      this.loadingOverlay.style.display = 'none'
+      this.loadingText.textContent = this.defaultLoadingText
+    }
   }
 }
