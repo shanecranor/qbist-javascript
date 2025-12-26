@@ -275,3 +275,22 @@ export function importFromGimpFormat(buffer: ArrayBuffer) {
 
   return info
 }
+
+export function isFormulaInfo(value: unknown): value is FormulaInfo {
+  if (!value || typeof value !== 'object') {
+    return false
+  }
+  const candidate = value as Partial<FormulaInfo>
+  const keys: Array<keyof FormulaInfo> = [
+    'transformSequence',
+    'source',
+    'control',
+    'dest',
+  ]
+  return keys.every((key) => {
+    const array = candidate[key]
+    return (
+      Array.isArray(array) && array.every((item) => typeof item === 'number')
+    )
+  })
+}

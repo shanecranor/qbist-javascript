@@ -1,10 +1,11 @@
 import './index.css'
 import './reset.css'
-import { createInfo, modifyInfo, type FormulaInfo } from './qbist.ts'
-import { loadStateFromParam } from './qbistListeners.ts'
+import { type FormulaInfo } from './qbist.ts'
 import { QbistExporter } from './QbistExporter'
 import { QbistRenderer } from './QbistRenderer.ts'
 import { PreviewCpuRenderer } from './PreviewCpuRenderer.ts'
+import { QbistState } from './QbistState.ts'
+import { UIController } from './UIController.ts'
 
 function logDebug(message: string, ...args: unknown[]) {
   const timestamp = new Date().toISOString()
@@ -46,7 +47,7 @@ function clearInitialLoadingOverlay() {
   loadingTextElement.textContent = defaultLoadingText
 }
 
-function renderPreviewCpu(index: number) {
+function renderPreviewCpu(index: number, formula: FormulaInfo) {
   const canvas = document.getElementById(`preview${index}`)
   if (!(canvas instanceof HTMLCanvasElement)) {
     console.warn(`Preview canvas preview${index} not found or invalid`)
@@ -55,7 +56,7 @@ function renderPreviewCpu(index: number) {
 
   logDebug(`renderPreviewCpu:start`, { index })
   return previewRenderer
-    .render(canvas, formulas[index])
+    .render(canvas, formula)
     .then(() => {
       canvas.dataset.previewMode = 'cpu'
       logDebug(`renderPreviewCpu:done`, { index })
@@ -73,110 +74,113 @@ interface RenderPreviewOptions {
   generation?: number
 }
 
-function renderPreviewWebGl(index: number, options: RenderPreviewOptions = {}) {
-  const { mode = 'standard', delayMs = 0, generation } = options
+const DEFAULT_MODE = 'standard' as const
+const DEFAULT_DELAY_MS = 0 as const
+async function renderPreviewWebGl(
+  index: number,
+  formula: FormulaInfo,
+  options: RenderPreviewOptions = {},
+) {
+  const {
+    mode = DEFAULT_MODE,
+    delayMs = DEFAULT_DELAY_MS,
+    generation,
+  } = options
   const element = document.getElementById(`preview${index}`)
   if (!(element instanceof HTMLCanvasElement)) {
     console.warn(`Preview canvas preview${index} not found or invalid`)
-    return Promise.resolve()
+    return
+  }
+
+  if (delayMs > 0) {
+    await new Promise((resolve) => window.setTimeout(resolve, delayMs))
   }
 
   logDebug(`renderPreviewWebGl:start`, { index, mode })
-  const start = () =>
-    QbistRenderer.ensureWorkerResponsive()
-      .then(() => {
-        logDebug(`renderPreviewWebGl:workerResponsive`, { index })
-        const canvas = element
 
-        let pendingRelease: (() => void) | null = null
-        if (canvas.dataset.previewMode === 'cpu') {
-          logDebug(`renderPreviewWebGl:willReleaseCpuPreview`, { index, mode })
-          if (mode === 'standard') {
-            pendingRelease = () => previewRenderer.releaseCanvas(canvas)
-          }
-        }
+  try {
+    await QbistRenderer.ensureWorkerResponsive()
+    logDebug(`renderPreviewWebGl:workerResponsive`, { index })
+    const canvas = element
 
-        return getRenderer(canvas)
-          .render(formulas[index], {
-            keepAlive: false,
-            refreshEveryFrame: false,
-          })
-          .then(() => {
-            if (
-              generation !== undefined &&
-              generation !== previewWarmupGeneration
-            ) {
-              logDebug('renderPreviewWebGl:staleGeneration', {
-                index,
-                mode,
-                generation,
-              })
-              return
-            }
-            if (pendingRelease) {
-              pendingRelease()
-              pendingRelease = null
-            }
-            if (mode === 'warmup') {
-              canvas.dataset.previewWarmup = 'complete'
-              const releaseAfterWarmup = () => {
-                if (
-                  generation !== undefined &&
-                  generation !== previewWarmupGeneration
-                ) {
-                  logDebug('renderPreviewWebGl:skipReleaseAfterWarmup', {
-                    index,
-                    mode,
-                    generation,
-                  })
-                  return
-                }
-                if (canvas.dataset.previewMode === 'webgl') {
-                  return
-                }
-                previewRenderer.releaseCanvas(canvas)
-                canvas.dataset.previewMode = 'webgl'
-                logDebug('renderPreviewWebGl:releasedAfterWarmup', { index })
-              }
+    let pendingRelease: (() => void) | null = null
+    if (canvas.dataset.previewMode === 'cpu') {
+      logDebug(`renderPreviewWebGl:willReleaseCpuPreview`, { index, mode })
+      if (mode === 'standard') {
+        pendingRelease = () => previewRenderer.releaseCanvas(canvas)
+      }
+    }
 
-              if (canvas.dataset.previewMode === 'cpu') {
-                window.requestAnimationFrame(() => {
-                  window.requestAnimationFrame(releaseAfterWarmup)
-                })
-              } else {
-                releaseAfterWarmup()
-              }
-
-              logDebug(`renderPreviewWebGl:warmupComplete`, { index })
-            } else {
-              canvas.dataset.previewMode = 'webgl'
-            }
-            logDebug(`renderPreviewWebGl:done`, { index, mode })
-          })
-      })
-      .catch((error: unknown) => {
-        logDebug(`renderPreviewWebGl:fallbackToCpu`, { index, error })
-        return renderPreviewCpu(index)
-      })
-
-  if (delayMs > 0) {
-    return new Promise<void>((resolve, reject) => {
-      window.setTimeout(() => {
-        void start().then(resolve).catch(reject)
-      }, delayMs)
+    await getRenderer(canvas).render(formula, {
+      keepAlive: false,
+      refreshEveryFrame: false,
     })
-  }
 
-  return start()
+    if (generation !== undefined && generation !== previewWarmupGeneration) {
+      logDebug('renderPreviewWebGl:staleGeneration', {
+        index,
+        mode,
+        generation,
+      })
+      return
+    }
+
+    if (pendingRelease) {
+      pendingRelease()
+    }
+
+    if (mode === 'warmup') {
+      canvas.dataset.previewWarmup = 'complete'
+      const releaseAfterWarmup = () => {
+        if (
+          generation !== undefined &&
+          generation !== previewWarmupGeneration
+        ) {
+          logDebug('renderPreviewWebGl:skipReleaseAfterWarmup', {
+            index,
+            mode,
+            generation,
+          })
+          return
+        }
+        if (canvas.dataset.previewMode === 'webgl') {
+          return
+        }
+        previewRenderer.releaseCanvas(canvas)
+        canvas.dataset.previewMode = 'webgl'
+        logDebug('renderPreviewWebGl:releasedAfterWarmup', { index })
+      }
+
+      if (canvas.dataset.previewMode === 'cpu') {
+        window.requestAnimationFrame(() => {
+          window.requestAnimationFrame(releaseAfterWarmup)
+        })
+      } else {
+        releaseAfterWarmup()
+      }
+
+      logDebug(`renderPreviewWebGl:warmupComplete`, { index })
+    } else {
+      canvas.dataset.previewMode = 'webgl'
+    }
+    logDebug(`renderPreviewWebGl:done`, { index, mode })
+  } catch (error: unknown) {
+    logDebug(`renderPreviewWebGl:fallbackToCpu`, { index, error })
+    await renderPreviewCpu(index, formula)
+  }
 }
 
-function queuePreviewWarmup(index: number, generation: number) {
+function queuePreviewWarmup(
+  index: number,
+  formula: FormulaInfo,
+  generation: number,
+) {
   if (generation !== previewWarmupGeneration) {
     logDebug('updateAll:warmupSkipped', { index, generation })
     return
   }
 
-  void renderPreviewWebGl(index, {
+  void renderPreviewWebGl(index, formula, {
     mode: 'warmup',
     delayMs: index * 40,
     generation,
@@ -186,20 +190,9 @@ function queuePreviewWarmup(index: number, generation: number) {
 }
 
 // --- Managing the 9-Panel Grid ---
-export const formulas: FormulaInfo[] = new Array(9)
-export const mainFormula = createInfo()
 const renderers = new Map<HTMLCanvasElement, QbistRenderer>()
 const exporter = new QbistExporter()
 const previewRenderer = new PreviewCpuRenderer()
-
-// Generate variations based on the current main formula
-export function generateFormulas() {
-  formulas[0] = mainFormula
-  for (let i = 1; i < 9; i++) {
-    formulas[i] = modifyInfo(mainFormula)
-  }
-  logDebug('generateFormulas:complete')
-}
 
 // Initialize or get a renderer for a canvas
 function getRenderer(canvas: HTMLCanvasElement) {
@@ -213,7 +206,7 @@ function getRenderer(canvas: HTMLCanvasElement) {
 }
 
 // Draw the large main pattern and each preview
-export async function updateAll() {
+async function updateAll() {
   const mainCanvas = document.getElementById('mainPattern')
   if (!(mainCanvas instanceof HTMLCanvasElement)) {
     throw new Error('Main canvas element not found or invalid')
@@ -228,7 +221,7 @@ export async function updateAll() {
   }
 
   // Start main canvas rendering - only use keepAlive in webgl2.html
-  const mainRenderPromise = getRenderer(mainCanvas).render(mainFormula, {
+  const mainRenderPromise = getRenderer(mainCanvas).render(state.mainFormula, {
     keepAlive: false,
     refreshEveryFrame: false,
   })
@@ -240,9 +233,9 @@ export async function updateAll() {
       previewWarmupGeneration += 1
       const currentGeneration = previewWarmupGeneration
       for (let i = 0; i < 9; i++) {
-        void renderPreviewCpu(i)
+        void renderPreviewCpu(i, state.formulas[i])
           .then(() => {
-            queuePreviewWarmup(i, currentGeneration)
+            queuePreviewWarmup(i, state.formulas[i], currentGeneration)
           })
           .catch((error) => {
             logDebug('updateAll:cpuPreviewError', { index: i, error })
@@ -272,11 +265,15 @@ export async function updateAll() {
 
       if (element.dataset.previewMode === 'webgl') {
         renderPromises.push(
-          renderPreviewWebGl(i, { generation: currentGeneration }),
+          renderPreviewWebGl(i, state.formulas[i], {
+            generation: currentGeneration,
+          }),
         )
       } else {
-        const chain = renderPreviewCpu(i).then(() =>
-          renderPreviewWebGl(i, { generation: currentGeneration }),
+        const chain = renderPreviewCpu(i, state.formulas[i]).then(() =>
+          renderPreviewWebGl(i, state.formulas[i], {
+            generation: currentGeneration,
+          }),
         )
         renderPromises.push(chain)
       }
@@ -285,7 +282,7 @@ export async function updateAll() {
 
   // Update URL state
   const url = new URL(window.location.href)
-  url.searchParams.set('state', btoa(JSON.stringify(mainFormula)))
+  url.searchParams.set('state', btoa(JSON.stringify(state.mainFormula)))
   window.history.pushState({}, '', url)
   logDebug('updateAll:urlUpdated')
 
@@ -306,39 +303,18 @@ export async function updateAll() {
 }
 
 // Export functionality
-export async function downloadImage(
+async function downloadImage(
   outputWidth: number,
   outputHeight: number,
   _oversampling = 1,
 ) {
   try {
-    await exporter.exportImage(mainFormula, outputWidth, outputHeight)
+    await exporter.exportImage(state.mainFormula, outputWidth, outputHeight)
     logDebug('downloadImage:complete', { outputWidth, outputHeight })
   } catch (err) {
     logDebug('downloadImage:error', { error: err })
     alert('Failed to export image. Please try again.')
   }
-}
-
-// --- Initialization ---
-function checkURLState() {
-  if ('scrollRestoration' in history) {
-    history.scrollRestoration = 'manual'
-  }
-
-  const urlParams = new URLSearchParams(window.location.search)
-  if (urlParams.has('state')) {
-    const state = urlParams.get('state')
-    loadStateFromParam(state)
-    return true
-  }
-  return false
-}
-
-// Initialize
-if (!checkURLState()) {
-  generateFormulas()
-  updateAll()
 }
 
 // Cleanup on page unload
@@ -347,3 +323,14 @@ window.addEventListener('unload', () => {
   exporter.cleanup()
   previewRenderer.cleanup()
 })
+
+// Initialize Application
+const state = new QbistState()
+
+// Initialize UI
+const ui = new UIController(state, updateAll, downloadImage)
+
+// Initial Render
+if (!ui.checkURLState()) {
+  updateAll()
+}

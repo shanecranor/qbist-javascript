@@ -1,5 +1,4 @@
-import { createInfo } from '../qbist.ts'
-import { isFormulaInfo } from '../qbistListeners.ts'
+import { createInfo, isFormulaInfo } from '../qbist.ts'
 import WebGlWorker from '../workerWebGL.ts?worker'
 
 const urlParams = new URLSearchParams(window.location.search)
