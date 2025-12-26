@@ -36,6 +36,8 @@ interface RendererContext {
   renderMode: RenderModeState
   formula: FormulaInfo | null
   pendingFrame: number | null
+  fpsLastTime: number
+  fpsFrameCount: number
 }
 
 interface RenderPayload {
@@ -63,9 +65,19 @@ interface CleanupMessage {
   canvasId?: string
 }
 
+interface InitMessage extends RenderPayload {
+  type: 'init'
+  canvas: OffscreenCanvas
+}
+
 interface PingMessage {
   type: 'ping'
   pingId: number
+}
+
+export type FPSMessage = {
+  command: 'fps'
+  fps: number
 }
 
 type WorkerMessage =
@@ -73,6 +85,7 @@ type WorkerMessage =
   | UpdateMessage
   | CleanupMessage
   | PingMessage
+  | InitMessage
 
 type RenderedMessageBase = {
   command: 'rendered'
@@ -132,13 +145,13 @@ const cancelFrame: (handle: FrameHandle) => void =
 // Singleton Context
 let singletonContext: RendererContext | null = null
 
-function ensureSingletonContext(): RendererContext {
+function ensureSingletonContext(canvas?: OffscreenCanvas): RendererContext {
   if (singletonContext) return singletonContext
 
-  // Create a default size canvas, it will be resized
-  const canvas = new OffscreenCanvas(256, 256)
+  // Use provided canvas or create a default one
+  const contextCanvas = canvas || new OffscreenCanvas(256, 256)
 
-  const gl = canvas.getContext('webgl2', {
+  const gl = contextCanvas.getContext('webgl2', {
     antialias: true,
     preserveDrawingBuffer: true,
     alpha: false,
@@ -160,7 +173,7 @@ function ensureSingletonContext(): RendererContext {
 
   singletonContext = {
     canvasId: null,
-    canvas,
+    canvas: contextCanvas,
     gl,
     program,
     vao,
@@ -169,6 +182,8 @@ function ensureSingletonContext(): RendererContext {
     renderMode: { type: 'interactive', keepAlive: false },
     formula: null,
     pendingFrame: null,
+    fpsLastTime: performance.now(),
+    fpsFrameCount: 0,
   }
 
   return singletonContext
@@ -179,6 +194,9 @@ ctx.addEventListener('message', (event: MessageEvent<WorkerMessage>) => {
 
   try {
     switch (message.type) {
+      case 'init':
+        handleInitMessage(message)
+        break
       case 'render':
         handleRenderMessage(message)
         break
@@ -209,6 +227,27 @@ ctx.addEventListener('message', (event: MessageEvent<WorkerMessage>) => {
     sendRenderError(canvasId, requestId, err)
   }
 })
+
+function handleInitMessage(message: InitMessage) {
+  const context = ensureSingletonContext(message.canvas)
+
+  const requestId = 0
+
+  if (message.info) {
+    uploadFormula(context, message.info)
+  }
+
+  // Trigger initial render/animation loop
+  handleRenderMessage({
+    type: 'render',
+    requestId,
+    canvasId: 'animation',
+    width: message.width,
+    height: message.height,
+    info: message.info,
+    keepAlive: message.keepAlive,
+  })
+}
 
 function handleRenderMessage(message: RenderMessage | UpdateMessage) {
   const context = ensureSingletonContext()
@@ -271,6 +310,16 @@ function handleRenderMessage(message: RenderMessage | UpdateMessage) {
           context.pendingFrame = null
           sendRenderError(context.canvasId!, requestId, error)
         })
+
+      // Calculate FPS
+      context.fpsFrameCount++
+      const now = performance.now()
+      if (now - context.fpsLastTime >= 1000) {
+        const fps = (context.fpsFrameCount * 1000) / (now - context.fpsLastTime)
+        ctx.postMessage({ command: 'fps', fps } satisfies FPSMessage)
+        context.fpsLastTime = now
+        context.fpsFrameCount = 0
+      }
     }
     context.pendingFrame = requestFrame(step)
   } else {
@@ -448,7 +497,15 @@ function createProgram(gl: WebGL2RenderingContext): WebGLProgram {
           vec3 r[NUM_REGISTERS];
           for (int i = 0; i < NUM_REGISTERS; i++) {
              if (uUsedRegFlag[i] == 1) {
-                r[i] = vec3(subPixelPos.x, subPixelPos.y, float(i) / float(NUM_REGISTERS)) + vec3(0.0, 0.0, uTime / 10.0);
+                // Add some circular motion and phase shifts based on register index
+                float phase = float(i) * 1.0;
+                float t = uTime * 0.2;
+                vec3 offset = vec3(
+                   0.1 * sin(t + phase),
+                   0.1 * cos(t + phase * 0.5),
+                   t * 0.1
+                );
+                r[i] = vec3(subPixelPos.x, subPixelPos.y, float(i) / float(NUM_REGISTERS)) + offset;
              } else {
                r[i] = vec3(0.0);
              }

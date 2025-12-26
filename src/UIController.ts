@@ -124,6 +124,12 @@ export class UIController {
       savePatternButton.addEventListener('click', () => this.saveState())
     }
 
+    // Animate
+    const animateButton = document.getElementById('animateButton')
+    if (animateButton instanceof HTMLElement) {
+      animateButton.addEventListener('click', () => this.animate())
+    }
+
     // Download
     const downloadButton = document.getElementById('downloadButton')
     if (downloadButton instanceof HTMLElement) {
@@ -164,6 +170,14 @@ export class UIController {
     url.searchParams.set('state', stateBase64)
     const shareURL = url.toString()
     prompt('Copy this URL to share your pattern:', shareURL)
+  }
+
+  private animate(): void {
+    const stateJSON = JSON.stringify(this.state.mainFormula)
+    const stateBase64 = btoa(stateJSON)
+    const url = new URL('webgl2.html', window.location.href)
+    url.searchParams.set('state', stateBase64)
+    window.open(url.toString(), '_blank')
   }
 
   private handleDownload(): void {
