@@ -4,6 +4,8 @@ import { optimize, type FormulaInfo } from './qbist.ts'
 
 const ctx = self as DedicatedWorkerGlobalScope
 
+const NUM_REGISTERS = 6
+
 type UniformArrayName =
   | 'uTransformSequence'
   | 'uSource'
@@ -14,7 +16,12 @@ type UniformArrayName =
 
 type UniformScalarName = 'uResolution' | 'uTime'
 
-type RendererUniformName = UniformArrayName | UniformScalarName
+type UniformVec3ArrayName = 'uRegisterSeed'
+
+type RendererUniformName =
+  | UniformArrayName
+  | UniformScalarName
+  | UniformVec3ArrayName
 
 type RendererUniforms = Record<RendererUniformName, WebGLUniformLocation | null>
 
@@ -35,6 +42,8 @@ interface RendererContext {
   uniforms: RendererUniforms
   renderMode: RenderModeState
   formula: FormulaInfo | null
+  usedRegFlag: boolean[]
+  registerSeedBuffer: Float32Array
   pendingFrame: number | null
   fpsLastTime: number
   fpsFrameCount: number
@@ -130,6 +139,8 @@ const arrayUniforms: UniformArrayName[] = [
 
 const scalarUniforms: UniformScalarName[] = ['uResolution', 'uTime']
 
+const vec3Uniforms: UniformVec3ArrayName[] = ['uRegisterSeed']
+
 type FrameHandle = number
 type FrameScheduler = (callback: (time: number) => void) => FrameHandle
 
@@ -182,6 +193,8 @@ function ensureSingletonContext(canvas?: OffscreenCanvas): RendererContext {
     uniforms,
     renderMode: { type: 'interactive', keepAlive: false },
     formula: null,
+    usedRegFlag: new Array(NUM_REGISTERS).fill(false),
+    registerSeedBuffer: new Float32Array(NUM_REGISTERS * 3),
     pendingFrame: null,
     fpsLastTime: performance.now(),
     fpsFrameCount: 0,
@@ -346,6 +359,8 @@ async function renderFrame(
   gl.useProgram(program)
   gl.bindVertexArray(vao)
 
+  updateRegisterSeeds(context, timestamp)
+
   if (uniforms.uTime) {
     const timeValue = renderMode.type === 'animation' ? timestamp * 0.001 : 0
     gl.uniform1f(uniforms.uTime, timeValue)
@@ -359,6 +374,34 @@ async function renderFrame(
   if (renderMode.type === 'export' || isExport) {
     context.renderMode = { type: 'interactive', keepAlive: false }
   }
+}
+
+function updateRegisterSeeds(context: RendererContext, timestamp: number) {
+  const { uniforms, registerSeedBuffer, usedRegFlag, gl } = context
+  if (!uniforms.uRegisterSeed) {
+    return
+  }
+
+  const timeSeconds = timestamp * 0.001
+  const oscillation = timeSeconds * 0.2
+
+  for (let i = 0; i < NUM_REGISTERS; i++) {
+    const baseIndex = i * 3
+    if (usedRegFlag[i]) {
+      const phase = i
+      // Precompute offsets CPU-side to avoid per-fragment trig work.
+      registerSeedBuffer[baseIndex + 0] = Math.sin(oscillation + phase) * 0.1
+      registerSeedBuffer[baseIndex + 1] =
+        Math.cos(oscillation + phase * 0.5) * 0.1
+      registerSeedBuffer[baseIndex + 2] = oscillation * 0.1
+    } else {
+      registerSeedBuffer[baseIndex + 0] = 0
+      registerSeedBuffer[baseIndex + 1] = 0
+      registerSeedBuffer[baseIndex + 2] = 0
+    }
+  }
+
+  gl.uniform3fv(uniforms.uRegisterSeed, registerSeedBuffer)
 }
 
 function resizeCanvas(context: RendererContext, width: number, height: number) {
@@ -408,6 +451,7 @@ function uploadFormula(context: RendererContext, info: FormulaInfo) {
   }
 
   context.formula = info
+  context.usedRegFlag = usedRegFlag.slice()
 }
 
 async function exportFromContext(context: RendererContext, requestId: number) {
@@ -478,86 +522,85 @@ function createProgram(gl: WebGL2RenderingContext): WebGLProgram {
     }`
 
   const fragmentSource = `#version 300 es
-    precision highp float;
-    precision highp int;
-    in vec2 vUV;
-    uniform ivec2 uResolution;
-    uniform float uTime;
-    uniform int uTransformSequence[36];
-    uniform int uSource[36];
-    uniform int uControl[36];
-    uniform int uDest[36];
-    uniform int uUsedTransFlag[36];
-    uniform int uUsedRegFlag[6];
-    out vec4 outColor;
+      precision highp float;
+      precision highp int;
+      in vec2 vUV;
+      uniform ivec2 uResolution;
+      uniform float uTime;
+      uniform int uTransformSequence[36];
+      uniform int uSource[36];
+      uniform int uControl[36];
+      uniform int uDest[36];
+      uniform int uUsedTransFlag[36];
+      uniform int uUsedRegFlag[6];
+      uniform vec3 uRegisterSeed[6];
+      out vec4 outColor;
 
-    #define OVERSAMPLING 2
-    const int MAX_TRANSFORMS = 36;
-    const int NUM_REGISTERS = 6;
+      #define OVERSAMPLING 2
+      const int MAX_TRANSFORMS = 36;
+      const int NUM_REGISTERS = 6;
 
-    void main() {
-      vec2 pixelCoord = vUV * vec2(uResolution);
-      vec3 accum = vec3(0.0);
+      void main() {
+        vec2 pixelCoord = vUV * vec2(uResolution);
+        vec2 baseCoord = floor(pixelCoord);
+        vec2 resolution = vec2(uResolution);
+        float invResolutionX = 1.0 / resolution.x;
+        float invResolutionY = 1.0 / resolution.y;
+        vec3 accum = vec3(0.0);
 
-      for (int oy = 0; oy < OVERSAMPLING; oy++) {
-        for (int ox = 0; ox < OVERSAMPLING; ox++) {
-          vec2 subPixelPos = (floor(pixelCoord) * float(OVERSAMPLING) + vec2(float(ox), float(oy))) / (vec2(uResolution) * float(OVERSAMPLING));
+        for (int oy = 0; oy < OVERSAMPLING; oy++) {
+          for (int ox = 0; ox < OVERSAMPLING; ox++) {
+            vec2 jitter = vec2(float(ox), float(oy));
+            vec2 subPixelPos = (baseCoord * float(OVERSAMPLING) + jitter) * vec2(invResolutionX, invResolutionY) / float(OVERSAMPLING);
 
-          vec3 r[NUM_REGISTERS];
-          for (int i = 0; i < NUM_REGISTERS; i++) {
-             if (uUsedRegFlag[i] == 1) {
-                // Add some circular motion and phase shifts based on register index
-                float phase = float(i) * 1.0;
-                float t = uTime * 0.2;
-                vec3 offset = vec3(
-                   0.1 * sin(t + phase),
-                   0.1 * cos(t + phase * 0.5),
-                   t * 0.1
-                );
-                r[i] = vec3(subPixelPos.x, subPixelPos.y, float(i) / float(NUM_REGISTERS)) + offset;
-             } else {
-               r[i] = vec3(0.0);
-             }
-          }
-
-          for (int i = 0; i < MAX_TRANSFORMS; i++) {
-             if (uUsedTransFlag[i] != 1) continue;
-            int t = uTransformSequence[i];
-            int sr = uSource[i];
-            int cr = uControl[i];
-            int dr = uDest[i];
-            vec3 src = r[sr];
-            vec3 ctrl = r[cr];
-            if (t == 0) {
-              float scalarProd = dot(src, ctrl);
-              r[dr] = src * scalarProd;
-            } else if (t == 1) {
-              vec3 sum = src + ctrl;
-              r[dr] = sum - step(vec3(1.0), sum);
-            } else if (t == 2) {
-              vec3 diff = src - ctrl;
-              r[dr] = diff + step(diff, vec3(0.0));
-            } else if (t == 3) {
-              r[dr] = vec3(src.y, src.z, src.x);
-            } else if (t == 4) {
-              r[dr] = vec3(src.z, src.x, src.y);
-            } else if (t == 5) {
-              r[dr] = src * ctrl;
-            } else if (t == 6) {
-              r[dr] = vec3(0.5) + 0.5 * sin(20.0 * src * ctrl);
-            } else if (t == 7) {
-              float sum = ctrl.x + ctrl.y + ctrl.z;
-              r[dr] = (sum > 0.5) ? src : ctrl;
-            } else if (t == 8) {
-              r[dr] = vec3(1.0) - src;
+            vec3 r[NUM_REGISTERS];
+            for (int i = 0; i < NUM_REGISTERS; i++) {
+               if (uUsedRegFlag[i] == 1) {
+                  vec3 seed = vec3(subPixelPos, float(i) / float(NUM_REGISTERS));
+                  r[i] = seed + uRegisterSeed[i];
+               } else {
+                 r[i] = vec3(0.0);
+               }
             }
+
+            for (int i = 0; i < MAX_TRANSFORMS; i++) {
+               if (uUsedTransFlag[i] != 1) continue;
+              int t = uTransformSequence[i];
+              int sr = uSource[i];
+              int cr = uControl[i];
+              int dr = uDest[i];
+              vec3 src = r[sr];
+              vec3 ctrl = r[cr];
+              if (t == 0) {
+                float scalarProd = dot(src, ctrl);
+                r[dr] = src * scalarProd;
+              } else if (t == 1) {
+                vec3 sum = src + ctrl;
+                r[dr] = sum - step(vec3(1.0), sum);
+              } else if (t == 2) {
+                vec3 diff = src - ctrl;
+                r[dr] = diff + step(diff, vec3(0.0));
+              } else if (t == 3) {
+                r[dr] = vec3(src.y, src.z, src.x);
+              } else if (t == 4) {
+                r[dr] = vec3(src.z, src.x, src.y);
+              } else if (t == 5) {
+                r[dr] = src * ctrl;
+              } else if (t == 6) {
+                r[dr] = vec3(0.5) + 0.5 * sin(20.0 * src * ctrl);
+              } else if (t == 7) {
+                float sum = ctrl.x + ctrl.y + ctrl.z;
+                r[dr] = (sum > 0.5) ? src : ctrl;
+              } else if (t == 8) {
+                r[dr] = vec3(1.0) - src;
+              }
+            }
+            accum += r[0];
           }
-          accum += r[0];
         }
-      }
-      vec3 color = accum / float(OVERSAMPLING * OVERSAMPLING);
-      outColor = vec4(color, 1.0);
-    }`
+        vec3 color = accum / float(OVERSAMPLING * OVERSAMPLING);
+        outColor = vec4(color, 1.0);
+      }`
 
   const vertexShader = compileShader(gl, gl.VERTEX_SHADER, vertexSource)
   const fragmentShader = compileShader(gl, gl.FRAGMENT_SHADER, fragmentSource)
@@ -652,6 +695,7 @@ function initUniforms(
     uDest: null,
     uUsedTransFlag: null,
     uUsedRegFlag: null,
+    uRegisterSeed: null,
   }
 
   arrayUniforms.forEach((name) => {
@@ -665,6 +709,15 @@ function initUniforms(
 
   scalarUniforms.forEach((name) => {
     uniforms[name] = gl.getUniformLocation(program, name)
+    if (uniforms[name] === null) {
+      console.error(`Failed to get uniform location for ${name}`)
+    }
+  })
+
+  vec3Uniforms.forEach((name) => {
+    uniforms[name] =
+      gl.getUniformLocation(program, `${name}[0]`) ||
+      gl.getUniformLocation(program, name)
     if (uniforms[name] === null) {
       console.error(`Failed to get uniform location for ${name}`)
     }
