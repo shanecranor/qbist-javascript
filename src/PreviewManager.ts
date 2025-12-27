@@ -22,6 +22,7 @@ export class PreviewManager {
   private previewRenderer = new PreviewCpuRenderer()
   private renderers = new Map<HTMLCanvasElement, QbistRenderer>()
   private previewWarmupGeneration = 0
+  private useWebGl = true
 
   cleanup() {
     this.previewRenderer.cleanup()
@@ -29,7 +30,41 @@ export class PreviewManager {
     this.renderers.clear()
   }
 
+  setUseWebGl(enabled: boolean) {
+    if (this.useWebGl === enabled) {
+      return
+    }
+    this.useWebGl = enabled
+
+    const previewCanvases = Array.from(
+      document.querySelectorAll<HTMLCanvasElement>('.preview'),
+    )
+
+    if (!enabled) {
+      this.renderers.forEach((renderer, canvas) => {
+        renderer.cleanup()
+        const ctx = canvas.getContext('2d')
+        ctx?.clearRect(0, 0, canvas.width, canvas.height)
+      })
+      this.renderers.clear()
+      previewCanvases.forEach((canvas) => {
+        const ctx = canvas.getContext('2d')
+        ctx?.clearRect(0, 0, canvas.width, canvas.height)
+        this.previewRenderer.releaseCanvas(canvas)
+      })
+    } else {
+      previewCanvases.forEach((canvas) => {
+        this.previewRenderer.releaseCanvas(canvas)
+        const ctx = canvas.getContext('2d')
+        ctx?.clearRect(0, 0, canvas.width, canvas.height)
+      })
+    }
+  }
+
   getRenderer(canvas: HTMLCanvasElement) {
+    if (!this.useWebGl) {
+      throw new Error('WebGL previews disabled')
+    }
     let renderer = this.renderers.get(canvas)
     if (!renderer) {
       renderer = new QbistRenderer(canvas)
@@ -88,6 +123,10 @@ export class PreviewManager {
     formula: FormulaInfo,
     generation: number,
   ) {
+    if (!this.useWebGl) {
+      await this.renderPreviewCpu(i, formula)
+      return
+    }
     const element = document.getElementById(`preview${i}`)
     if (!(element instanceof HTMLCanvasElement)) return
 
@@ -120,6 +159,9 @@ export class PreviewManager {
     formula: FormulaInfo,
     generation: number,
   ) {
+    if (!this.useWebGl) {
+      return
+    }
     if (generation !== this.previewWarmupGeneration) {
       return
     }
@@ -138,6 +180,10 @@ export class PreviewManager {
     formula: FormulaInfo,
     options: RenderPreviewOptions = {},
   ) {
+    if (!this.useWebGl) {
+      await this.renderPreviewCpu(index, formula)
+      return
+    }
     const {
       mode = DEFAULT_MODE,
       delayMs = DEFAULT_DELAY_MS,

@@ -51,6 +51,8 @@ type WorkerMessageData =
   | WorkerErrorMessage
   | WorkerPongMessage
 
+export type WorkerFailureHandler = (error: Error) => void
+
 interface PendingRequest {
   resolve: (result: RenderResult) => void
   reject: (error: Error) => void
@@ -74,6 +76,7 @@ let nextPingId = 1
 const pendingPings = new Map<number, PendingPing>()
 let workerResponsive = false
 let workerResponsivePromise: Promise<void> | null = null
+const failureHandlers = new Set<WorkerFailureHandler>()
 
 const rendererRegistry = new Map<string, QbistRenderer>()
 
@@ -112,6 +115,7 @@ function ensureSharedWorker(): Worker {
       const error = new Error(event.message || 'WebGL worker error')
       rejectPendingPings(error)
       rendererRegistry.forEach((renderer) => renderer.handleWorkerFailure())
+      failureHandlers.forEach((handler) => handler(error))
     }
     sharedWorker.addEventListener('message', workerMessageListener)
     sharedWorker.addEventListener('error', workerErrorListener)
@@ -127,8 +131,9 @@ export class QbistRenderer {
   private pendingRequests: Map<number, PendingRequest>
   private activeRequestId: number | null
   private worker: Worker | null
+  private onFailure: WorkerFailureHandler | null
 
-  constructor(canvas: HTMLCanvasElement) {
+  constructor(canvas: HTMLCanvasElement, onFailure?: WorkerFailureHandler) {
     this.canvas = canvas
     this.ctx = canvas.getContext('2d')
 
@@ -154,6 +159,10 @@ export class QbistRenderer {
     this.pendingRequests = new Map()
     this.activeRequestId = null
     this.worker = ensureSharedWorker()
+    this.onFailure = onFailure ?? null
+    if (this.onFailure) {
+      failureHandlers.add(this.onFailure)
+    }
 
     rendererRegistry.set(this.rendererId, this)
     console.log(
@@ -297,6 +306,9 @@ export class QbistRenderer {
     this.keepAlive = false
     this.worker = null
     this.ctx = null
+    if (this.onFailure) {
+      failureHandlers.delete(this.onFailure)
+    }
 
     console.log(
       `[Canvas Delete] Cleaned up renderer for canvas ${this.canvas.id || this.rendererId}`,
@@ -349,6 +361,21 @@ export class QbistRenderer {
         }
       } else {
         console.error(`Worker error for ${this.rendererId}:`, data.message)
+      }
+
+      const message = data.message ?? ''
+      const normalized = message.toLowerCase()
+      const indicatesContextFailure =
+        normalized.includes('webgl2 not available') ||
+        normalized.includes('failed to create webgl context') ||
+        normalized.includes('webgl is currently disabled')
+
+      if (indicatesContextFailure) {
+        const error = new Error(message || 'WebGL renderer unavailable')
+        if (this.onFailure) {
+          this.onFailure(error)
+        }
+        failureHandlers.forEach((handler) => handler(error))
       }
     }
   }

@@ -2,6 +2,7 @@ import './index.css'
 import './reset.css'
 import { QbistExporter } from './QbistExporter'
 import { QbistRenderer } from './QbistRenderer.ts'
+import type { WorkerFailureHandler } from './QbistRenderer.ts'
 import { MainCpuRenderer } from './MainCpuRenderer.ts'
 import { QbistState } from './QbistState.ts'
 import { UIController } from './UIController.ts'
@@ -23,11 +24,20 @@ const cpuRenderer = new MainCpuRenderer()
 // eslint-disable-next-line import/no-mutable-exports
 let ui: UIController
 
+const handleGpuFailure: WorkerFailureHandler = (error) => {
+  if (!state.useGpu) return
+  console.warn('GPU renderer unavailable, switching to CPU', error)
+  state.useGpu = false
+  previewManager.setUseWebGl(false)
+  ui?.syncRenderModeToggle()
+  void updateAll()
+}
+
 // Initialize or get a renderer for a canvas
 function getRenderer(canvas: HTMLCanvasElement) {
   let renderer = renderers.get(canvas)
   if (!renderer) {
-    renderer = new QbistRenderer(canvas)
+    renderer = new QbistRenderer(canvas, handleGpuFailure)
     renderers.set(canvas, renderer)
     logDebug('getRenderer:created', { canvasId: canvas.id })
   }
@@ -47,7 +57,7 @@ async function updateAll() {
     ui?.scheduleInitialLoadingOverlay()
   }
 
-  // 1. Render Main View
+  // render main view
   try {
     if (state.useGpu) {
       const mainRenderer = getRenderer(mainCanvas)
@@ -57,10 +67,6 @@ async function updateAll() {
       })
       logDebug('updateAll:mainRenderResolved', { mode: 'gpu' })
     } else {
-      const context = mainCanvas.getContext('2d')
-      if (context) {
-        context.clearRect(0, 0, mainCanvas.width, mainCanvas.height)
-      }
       await cpuRenderer.render(mainCanvas, state.mainFormula, {
         oversampling: 2,
       })
@@ -69,18 +75,18 @@ async function updateAll() {
   } catch (err) {
     logDebug('updateAll:mainRenderError', { error: err })
   }
-
-  // 2. Render Previews
+  // Render previews
+  previewManager.setUseWebGl(state.useGpu)
   // When initial load is pending, we use the "warmup" strategy
   await previewManager.updatePreviews(state.formulas, initialLoadPending)
 
-  // 3. Update URL
+  // Update url
   const url = new URL(window.location.href)
   url.searchParams.set('state', btoa(JSON.stringify(state.mainFormula)))
   window.history.pushState({}, '', url)
   logDebug('updateAll:urlUpdated')
 
-  // 4. Cleanup Overlay
+  // Cleanup overlay
   if (initialLoadPending) {
     ui?.clearInitialLoadingOverlay()
     initialLoadPending = false
