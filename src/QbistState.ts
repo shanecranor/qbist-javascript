@@ -3,6 +3,7 @@ import { createInfo, modifyInfo, type FormulaInfo } from './qbist.ts'
 export class QbistState {
   formulas: FormulaInfo[] = new Array(9)
   mainFormula: FormulaInfo = createInfo()
+  useGpu = true
 
   constructor() {
     this.generateFormulas()

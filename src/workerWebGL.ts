@@ -406,12 +406,13 @@ function updateRegisterSeeds(context: RendererContext, timestamp: number) {
     return
   }
 
+  const shouldAnimate = context.renderMode.keepAlive
   const timeSeconds = timestamp * 0.001
-  const oscillation = context.renderMode.keepAlive ? timeSeconds * 0.2 : 0
+  const oscillation = shouldAnimate ? timeSeconds * 0.2 : 0
 
   for (let i = 0; i < NUM_REGISTERS; i++) {
     const baseIndex = i * 3
-    if (usedRegFlag[i]) {
+    if (usedRegFlag[i] && shouldAnimate) {
       const phase = i
       // Precompute offsets CPU-side to avoid per-fragment trig work.
       registerSeedBuffer[baseIndex + 0] = Math.sin(oscillation + phase) * 0.1

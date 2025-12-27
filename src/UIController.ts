@@ -32,6 +32,7 @@ export class UIController {
   private initialize() {
     this.setupUrlHandling()
     this.setupOverlay()
+    this.setupRenderModeToggle()
     this.setupGridListeners()
     this.setupActionListeners()
     this.setupNavLinks()
@@ -147,6 +148,38 @@ export class UIController {
           settingsDialog.close()
         }
       })
+    }
+  }
+
+  private setupRenderModeToggle() {
+    const toggle = document.getElementById('renderModeToggle')
+    if (!(toggle instanceof HTMLInputElement)) {
+      return
+    }
+
+    toggle.checked = this.state.useGpu
+    this.updateRenderModeLabel(toggle.checked)
+
+    toggle.addEventListener('change', () => {
+      this.state.useGpu = toggle.checked
+      this.updateRenderModeLabel(toggle.checked)
+      this.onUpdate()
+    })
+  }
+
+  syncRenderModeToggle() {
+    const toggle = document.getElementById('renderModeToggle')
+    if (!(toggle instanceof HTMLInputElement)) {
+      return
+    }
+    toggle.checked = this.state.useGpu
+    this.updateRenderModeLabel(toggle.checked)
+  }
+
+  private updateRenderModeLabel(useGpu: boolean) {
+    const label = document.querySelector('.render-mode-toggle span')
+    if (label instanceof HTMLElement) {
+      label.textContent = useGpu ? 'GPU Rendering' : 'CPU Rendering'
     }
   }
 

@@ -2,6 +2,7 @@ import './index.css'
 import './reset.css'
 import { QbistExporter } from './QbistExporter'
 import { QbistRenderer } from './QbistRenderer.ts'
+import { MainCpuRenderer } from './MainCpuRenderer.ts'
 import { QbistState } from './QbistState.ts'
 import { UIController } from './UIController.ts'
 import { PreviewManager } from './PreviewManager.ts'
@@ -18,6 +19,7 @@ const state = new QbistState()
 const renderers = new Map<HTMLCanvasElement, QbistRenderer>()
 const exporter = new QbistExporter()
 const previewManager = new PreviewManager()
+const cpuRenderer = new MainCpuRenderer()
 // eslint-disable-next-line import/no-mutable-exports
 let ui: UIController
 
@@ -47,12 +49,23 @@ async function updateAll() {
 
   // 1. Render Main View
   try {
-    const mainRenderer = getRenderer(mainCanvas)
-    await mainRenderer.render(state.mainFormula, {
-      keepAlive: false,
-      refreshEveryFrame: false,
-    })
-    logDebug('updateAll:mainRenderResolved')
+    if (state.useGpu) {
+      const mainRenderer = getRenderer(mainCanvas)
+      await mainRenderer.render(state.mainFormula, {
+        keepAlive: false,
+        refreshEveryFrame: false,
+      })
+      logDebug('updateAll:mainRenderResolved', { mode: 'gpu' })
+    } else {
+      const context = mainCanvas.getContext('2d')
+      if (context) {
+        context.clearRect(0, 0, mainCanvas.width, mainCanvas.height)
+      }
+      await cpuRenderer.render(mainCanvas, state.mainFormula, {
+        oversampling: 2,
+      })
+      logDebug('updateAll:mainRenderResolved', { mode: 'cpu' })
+    }
   } catch (err) {
     logDebug('updateAll:mainRenderError', { error: err })
   }
@@ -73,6 +86,7 @@ async function updateAll() {
     initialLoadPending = false
     logDebug('updateAll:initialOverlayCleared')
   }
+  ui?.syncRenderModeToggle()
   logDebug('updateAll:complete')
 }
 
@@ -96,6 +110,7 @@ window.addEventListener('unload', () => {
   renderers.forEach((renderer) => renderer.cleanup())
   exporter.cleanup()
   previewManager.cleanup()
+  cpuRenderer.cleanup()
 })
 
 // Initialize UI
