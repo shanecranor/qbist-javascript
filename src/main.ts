@@ -1,0 +1,128 @@
+import './index.css'
+import './reset.css'
+import { QbistExporter } from './QbistExporter'
+import { QbistRenderer } from './QbistRenderer.ts'
+import type { WorkerFailureHandler } from './QbistRenderer.ts'
+import { MainCpuRenderer } from './MainCpuRenderer.ts'
+import { QbistState } from './QbistState.ts'
+import { UIController } from './UIController.ts'
+import { PreviewManager } from './PreviewManager.ts'
+
+function logDebug(message: string, ...args: unknown[]) {
+  const timestamp = new Date().toISOString()
+  console.log(`[${timestamp}] ${message}`, ...args)
+}
+
+let initialLoadPending = true
+
+// --- Components ---
+const state = new QbistState()
+const renderers = new Map<HTMLCanvasElement, QbistRenderer>()
+const exporter = new QbistExporter()
+const previewManager = new PreviewManager()
+const cpuRenderer = new MainCpuRenderer()
+// eslint-disable-next-line import/no-mutable-exports
+let ui: UIController
+
+const handleGpuFailure: WorkerFailureHandler = (error) => {
+  if (!state.useGpu) return
+  console.warn('GPU renderer unavailable, switching to CPU', error)
+  state.useGpu = false
+  previewManager.setUseWebGl(false)
+  ui?.syncRenderModeToggle()
+  void updateAll()
+}
+
+// Initialize or get a renderer for a canvas
+function getRenderer(canvas: HTMLCanvasElement) {
+  let renderer = renderers.get(canvas)
+  if (!renderer) {
+    renderer = new QbistRenderer(canvas, handleGpuFailure)
+    renderers.set(canvas, renderer)
+    logDebug('getRenderer:created', { canvasId: canvas.id })
+  }
+  return renderer
+}
+
+// Draw the large main pattern and each preview
+async function updateAll() {
+  const mainCanvas = document.getElementById('mainPattern')
+  if (!(mainCanvas instanceof HTMLCanvasElement)) {
+    throw new Error('Main canvas element not found or invalid')
+  }
+
+  logDebug('updateAll:start')
+
+  if (initialLoadPending) {
+    ui?.scheduleInitialLoadingOverlay()
+  }
+
+  // render main view
+  try {
+    if (state.useGpu) {
+      const mainRenderer = getRenderer(mainCanvas)
+      await mainRenderer.render(state.mainFormula, {
+        keepAlive: false,
+        refreshEveryFrame: false,
+      })
+      logDebug('updateAll:mainRenderResolved', { mode: 'gpu' })
+    } else {
+      await cpuRenderer.render(mainCanvas, state.mainFormula, {
+        oversampling: 2,
+      })
+      logDebug('updateAll:mainRenderResolved', { mode: 'cpu' })
+    }
+  } catch (err) {
+    logDebug('updateAll:mainRenderError', { error: err })
+  }
+  // Render previews
+  previewManager.setUseWebGl(state.useGpu)
+  // When initial load is pending, we use the "warmup" strategy
+  await previewManager.updatePreviews(state.formulas, initialLoadPending)
+
+  // Update url
+  const url = new URL(window.location.href)
+  url.searchParams.set('state', btoa(JSON.stringify(state.mainFormula)))
+  window.history.pushState({}, '', url)
+  logDebug('updateAll:urlUpdated')
+
+  // Cleanup overlay
+  if (initialLoadPending) {
+    ui?.clearInitialLoadingOverlay()
+    initialLoadPending = false
+    logDebug('updateAll:initialOverlayCleared')
+  }
+  ui?.syncRenderModeToggle()
+  logDebug('updateAll:complete')
+}
+
+// Export functionality
+async function downloadImage(
+  outputWidth: number,
+  outputHeight: number,
+  _oversampling = 1,
+) {
+  try {
+    await exporter.exportImage(state.mainFormula, outputWidth, outputHeight)
+    logDebug('downloadImage:complete', { outputWidth, outputHeight })
+  } catch (err) {
+    logDebug('downloadImage:error', { error: err })
+    alert('Failed to export image. Please try again.')
+  }
+}
+
+// Cleanup on page unload
+window.addEventListener('unload', () => {
+  renderers.forEach((renderer) => renderer.cleanup())
+  exporter.cleanup()
+  previewManager.cleanup()
+  cpuRenderer.cleanup()
+})
+
+// Initialize UI
+ui = new UIController(state, updateAll, downloadImage)
+
+// Initial Render
+if (!ui.checkURLState()) {
+  updateAll()
+}

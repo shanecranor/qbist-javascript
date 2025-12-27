@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>QbistJS Benchmark</title>
+    <style>
+      :root {
+        color-scheme: dark light;
+        font-family:
+          system-ui,
+          -apple-system,
+          BlinkMacSystemFont,
+          'Segoe UI',
+          sans-serif;
+      }
+      body {
+        margin: 0;
+        padding: 2rem;
+        background: #111;
+        color: #f5f5f5;
+        display: flex;
+        flex-direction: column;
+        gap: 1.5rem;
+        min-height: 100vh;
+      }
+      header {
+        display: flex;
+        flex-direction: column;
+        gap: 0.5rem;
+      }
+      h1 {
+        margin: 0;
+        font-size: 2rem;
+      }
+      a {
+        color: #8ad4ff;
+      }
+      button {
+        padding: 0.75rem 1.5rem;
+        font-size: 1rem;
+        border-radius: 0.5rem;
+        border: none;
+        background: #2979ff;
+        color: white;
+        cursor: pointer;
+      }
+      button:disabled {
+        opacity: 0.6;
+        cursor: progress;
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        background: rgba(255, 255, 255, 0.05);
+        border-radius: 0.75rem;
+        overflow: hidden;
+      }
+      th,
+      td {
+        padding: 0.75rem 1rem;
+        text-align: left;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+      }
+      tbody tr:last-child td {
+        border-bottom: none;
+      }
+      #status {
+        min-height: 1.2em;
+      }
+      .hidden-canvas {
+        display: none;
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>Qbist Benchmark</h1>
+      <p>
+        Measures render turnaround time for a fixed formula across multiple
+        resolutions. Pass <code>?state=&lt;base64&gt;</code> to benchmark a
+        saved configuration.
+      </p>
+      <p>
+        <a href="./index.html">Back to editor</a>
+      </p>
+    </header>
+    <section>
+      <button id="runBenchmark">Run Benchmark</button>
+      <p id="status"></p>
+    </section>
+    <section>
+      <table>
+        <thead>
+          <tr>
+            <th>Resolution</th>
+            <th>Average (ms)</th>
+            <th>Min (ms)</th>
+            <th>Max (ms)</th>
+          </tr>
+        </thead>
+        <tbody id="resultsBody">
+          <tr>
+            <td colspan="4">Press "Run Benchmark" to gather data.</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+    <script type="module" src="./src/benchmark.ts"></script>
+  </body>
+</html>

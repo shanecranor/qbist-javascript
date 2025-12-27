@@ -1,6 +1,6 @@
 // --- Core Constants and Transformation Types ---
-const MAX_TRANSFORMS = 36
-const NUM_REGISTERS = 6
+const MAX_TRANSFORMS = 36 as const
+const NUM_REGISTERS = 6 as const
 const TransformType = {
   PROJECTION: 0,
   SHIFT: 1,
@@ -11,19 +11,26 @@ const TransformType = {
   SINE: 6,
   CONDITIONAL: 7,
   COMPLEMENT: 8,
-}
-const NUM_TRANSFORM_TYPES = 9 // Total transformation types
+} as const
+const NUM_TRANSFORM_TYPES = 9 as const // Total transformation types
 
 // --- Utility Functions ---
 // Returns a random integer in [min, max)
-function randomInt(min, max) {
+function randomInt(min: number, max: number) {
   return Math.floor(Math.random() * (max - min)) + min
 }
 
 // --- Formula Generation ---
 // Creates a random transformation formula (similar to ExpInfo in C)
+export type FormulaInfo = {
+  transformSequence: number[]
+  source: number[]
+  control: number[]
+  dest: number[]
+}
+
 export function createInfo() {
-  const info = {
+  const info: FormulaInfo = {
     transformSequence: [],
     source: [],
     control: [],
@@ -39,7 +46,7 @@ export function createInfo() {
 }
 
 // Modify an existing formula by making random changes.
-export function modifyInfo(oldInfo) {
+export function modifyInfo(oldInfo: FormulaInfo): FormulaInfo {
   const newInfo = {
     transformSequence: oldInfo.transformSequence.slice(),
     source: oldInfo.source.slice(),
@@ -52,19 +59,19 @@ export function modifyInfo(oldInfo) {
       case 0:
         newInfo.transformSequence[randomInt(0, MAX_TRANSFORMS)] = randomInt(
           0,
-          NUM_TRANSFORM_TYPES
+          NUM_TRANSFORM_TYPES,
         )
         break
       case 1:
         newInfo.source[randomInt(0, MAX_TRANSFORMS)] = randomInt(
           0,
-          NUM_REGISTERS
+          NUM_REGISTERS,
         )
         break
       case 2:
         newInfo.control[randomInt(0, MAX_TRANSFORMS)] = randomInt(
           0,
-          NUM_REGISTERS
+          NUM_REGISTERS,
         )
         break
       case 3:
@@ -77,7 +84,7 @@ export function modifyInfo(oldInfo) {
 
 // --- Optimization ---
 // Determines which transformations and registers are actually used.
-export function optimize(info) {
+export function optimize(info: FormulaInfo) {
   const usedTransFlag = new Array(MAX_TRANSFORMS).fill(false)
   const usedRegFlag = new Array(NUM_REGISTERS).fill(false)
   for (let i = 0; i < MAX_TRANSFORMS; i++) {
@@ -89,7 +96,7 @@ export function optimize(info) {
       info.control[i] = info.dest[i]
     }
   }
-  function checkLastModified(p, n) {
+  function checkLastModified(p: number, n: number) {
     p--
     while (p >= 0 && info.dest[p] !== n) {
       p--
@@ -109,14 +116,14 @@ export function optimize(info) {
 // --- Core Image Processing (qbist) ---
 // Process one pixel using the qbist algorithm.
 export function qbist(
-  info,
-  x,
-  y,
-  width,
-  height,
-  oversampling,
-  usedTransFlag,
-  usedRegFlag
+  info: FormulaInfo,
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+  oversampling: number,
+  usedTransFlag: boolean[],
+  usedRegFlag: boolean[],
 ) {
   const accum = [0, 0, 0]
   for (let yy = 0; yy < oversampling; yy++) {
@@ -211,7 +218,7 @@ export function qbist(
 }
 
 // --- GIMP Qbist File Format Functions ---
-export function exportToGimpFormat(info) {
+export function exportToGimpFormat(info: FormulaInfo) {
   // Create a buffer for 288 bytes (36 16-bit integers * 4 arrays)
   const buffer = new ArrayBuffer(288)
   const view = new DataView(buffer)
@@ -234,9 +241,9 @@ export function exportToGimpFormat(info) {
   return buffer
 }
 
-export function importFromGimpFormat(buffer) {
+export function importFromGimpFormat(buffer: ArrayBuffer) {
   const view = new DataView(buffer)
-  const info = {
+  const info: FormulaInfo = {
     transformSequence: [],
     source: [],
     control: [],
@@ -246,14 +253,14 @@ export function importFromGimpFormat(buffer) {
     throw new RangeError(
       `Expected ${MAX_TRANSFORMS * 2 * 4} byte GIMP Qbist buffer, got ${
         buffer.byteLength
-      }`
+      }`,
     )
   }
   // Read each array as 16-bit big-endian integers
   for (let i = 0; i < MAX_TRANSFORMS; i++) {
     // transformSequence (first 72 bytes)
     info.transformSequence.push(
-      view.getUint16(i * 2, false) % NUM_TRANSFORM_TYPES
+      view.getUint16(i * 2, false) % NUM_TRANSFORM_TYPES,
     )
 
     // source (next 72 bytes)
@@ -267,4 +274,23 @@ export function importFromGimpFormat(buffer) {
   }
 
   return info
+}
+
+export function isFormulaInfo(value: unknown): value is FormulaInfo {
+  if (!value || typeof value !== 'object') {
+    return false
+  }
+  const candidate = value as Partial<FormulaInfo>
+  const keys: Array<keyof FormulaInfo> = [
+    'transformSequence',
+    'source',
+    'control',
+    'dest',
+  ]
+  return keys.every((key) => {
+    const array = candidate[key]
+    return (
+      Array.isArray(array) && array.every((item) => typeof item === 'number')
+    )
+  })
 }
