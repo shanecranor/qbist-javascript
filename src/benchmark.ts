@@ -21,7 +21,7 @@ const resolutions: ResolutionConfig[] = [
   { label: '3840 × 2160', width: 3840, height: 2160 },
 ]
 
-const iterationsPerResolution = 10
+const iterationsPerResolution = 100
 
 function requireElement<T extends Element>(
   id: string,
