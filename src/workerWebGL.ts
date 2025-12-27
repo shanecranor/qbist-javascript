@@ -7,7 +7,7 @@ const ctx = self as DedicatedWorkerGlobalScope
 const MAX_TRANSFORMS = 36
 const NUM_REGISTERS = 6
 
-type UniformArrayName = 'uActiveTransformIndex' | 'uActiveRegisterIndex'
+type UniformArrayName = 'uActiveRegisterIndex'
 
 type UniformScalarName =
   | 'uResolution'
@@ -46,7 +46,6 @@ interface RendererContext {
   registerSeedBuffer: Float32Array
   activeTransformCount: number
   activeRegisterCount: number
-  activeTransformIndex: Int32Array
   activeRegisterIndex: Int32Array
   transformParamBuffer: Int32Array
   pendingFrame: number | null
@@ -133,10 +132,7 @@ export type ErrorMessage = {
   message: string
 }
 
-const arrayUniforms: UniformArrayName[] = [
-  'uActiveTransformIndex',
-  'uActiveRegisterIndex',
-]
+const arrayUniforms: UniformArrayName[] = ['uActiveRegisterIndex']
 
 const scalarUniforms: UniformScalarName[] = [
   'uResolution',
@@ -203,7 +199,6 @@ function ensureSingletonContext(canvas?: OffscreenCanvas): RendererContext {
     registerSeedBuffer: new Float32Array(NUM_REGISTERS * 3),
     activeTransformCount: 0,
     activeRegisterCount: 0,
-    activeTransformIndex: new Int32Array(MAX_TRANSFORMS),
     activeRegisterIndex: new Int32Array(NUM_REGISTERS),
     transformParamBuffer: new Int32Array(MAX_TRANSFORMS * 4),
     pendingFrame: null,
@@ -437,24 +432,23 @@ function uploadFormula(context: RendererContext, info: FormulaInfo) {
   const { usedTransFlag, usedRegFlag } = optimize(info)
 
   const transformParams = context.transformParamBuffer
-  let transformOffset = 0
-  for (let i = 0; i < MAX_TRANSFORMS; i++) {
-    transformParams[transformOffset++] = info.transformSequence[i]
-    transformParams[transformOffset++] = info.source[i]
-    transformParams[transformOffset++] = info.control[i]
-    transformParams[transformOffset++] = info.dest[i]
-  }
-
-  if (uniforms.uTransformParams) {
-    gl.uniform4iv(uniforms.uTransformParams, transformParams)
-  }
-
-  const transformIndices = context.activeTransformIndex
   let transformCount = 0
-  for (let i = 0; i < usedTransFlag.length; i++) {
+  for (let i = 0; i < MAX_TRANSFORMS; i++) {
     if (usedTransFlag[i]) {
-      transformIndices[transformCount++] = i
+      const offset = transformCount * 4
+      transformParams[offset + 0] = info.transformSequence[i]
+      transformParams[offset + 1] = info.source[i]
+      transformParams[offset + 2] = info.control[i]
+      transformParams[offset + 3] = info.dest[i]
+      transformCount++
     }
+  }
+
+  if (uniforms.uTransformParams && transformCount > 0) {
+    gl.uniform4iv(
+      uniforms.uTransformParams,
+      transformParams.subarray(0, transformCount * 4),
+    )
   }
 
   const registerIndices = context.activeRegisterIndex
@@ -469,13 +463,6 @@ function uploadFormula(context: RendererContext, info: FormulaInfo) {
   context.usedRegFlag = usedRegFlag.slice()
   context.activeTransformCount = transformCount
   context.activeRegisterCount = registerCount
-
-  if (uniforms.uActiveTransformIndex && transformCount > 0) {
-    gl.uniform1iv(
-      uniforms.uActiveTransformIndex,
-      transformIndices.subarray(0, transformCount),
-    )
-  }
 
   if (uniforms.uActiveRegisterIndex && registerCount > 0) {
     gl.uniform1iv(
@@ -565,7 +552,6 @@ function createProgram(gl: WebGL2RenderingContext): WebGLProgram {
       in vec2 vUV;
       uniform ivec2 uResolution;
       uniform ivec4 uTransformParams[36];
-      uniform int uActiveTransformIndex[36];
       uniform int uActiveRegisterIndex[6];
       uniform int uActiveTransformCount;
       uniform int uActiveRegisterCount;
@@ -601,8 +587,7 @@ function createProgram(gl: WebGL2RenderingContext): WebGLProgram {
             }
 
             for (int idx = 0; idx < uActiveTransformCount; idx++) {
-              int i = uActiveTransformIndex[idx];
-              ivec4 params = uTransformParams[i];
+              ivec4 params = uTransformParams[idx];
               int t = params.x;
               int sr = params.y;
               int cr = params.z;
@@ -753,7 +738,6 @@ function initUniforms(
     uActiveTransformCount: null,
     uActiveRegisterCount: null,
     uTransformParams: null,
-    uActiveTransformIndex: null,
     uActiveRegisterIndex: null,
     uRegisterSeed: null,
   }
