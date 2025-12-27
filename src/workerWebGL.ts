@@ -6,6 +6,8 @@ const ctx = self as DedicatedWorkerGlobalScope
 
 const MAX_TRANSFORMS = 36
 const NUM_REGISTERS = 6
+const SAMPLE_COUNT = 4
+const SAMPLE_OFFSETS = new Float32Array([0, 0, 0.5, 0, 0, 0.5, 0.5, 0.5])
 
 type UniformArrayName = 'uActiveRegisterIndex'
 
@@ -14,12 +16,14 @@ type UniformScalarName =
   | 'uActiveTransformCount'
   | 'uActiveRegisterCount'
 
+type UniformVec2ArrayName = 'uSampleOffsets'
 type UniformVec3ArrayName = 'uRegisterSeed'
 type UniformVec4ArrayName = 'uTransformParams'
 
 type RendererUniformName =
   | UniformArrayName
   | UniformScalarName
+  | UniformVec2ArrayName
   | UniformVec3ArrayName
   | UniformVec4ArrayName
 
@@ -141,6 +145,7 @@ const scalarUniforms: UniformScalarName[] = [
 ]
 
 const vec3Uniforms: UniformVec3ArrayName[] = ['uRegisterSeed']
+const vec2Uniforms: UniformVec2ArrayName[] = ['uSampleOffsets']
 const vec4Uniforms: UniformVec4ArrayName[] = ['uTransformParams']
 
 type FrameHandle = number
@@ -184,6 +189,10 @@ function ensureSingletonContext(canvas?: OffscreenCanvas): RendererContext {
   const uniforms = initUniforms(gl, program)
 
   gl.useProgram(program)
+
+  if (uniforms.uSampleOffsets) {
+    gl.uniform2fv(uniforms.uSampleOffsets, SAMPLE_OFFSETS)
+  }
 
   singletonContext = {
     canvasId: null,
@@ -376,7 +385,13 @@ async function renderFrame(
   }
 
   gl.viewport(0, 0, context.canvas.width, context.canvas.height)
-  gl.drawArrays(gl.TRIANGLES, 0, 6)
+  gl.clearColor(0, 0, 0, 0)
+  gl.clear(gl.COLOR_BUFFER_BIT)
+
+  gl.enable(gl.BLEND)
+  gl.blendFunc(gl.ONE, gl.ONE)
+  gl.drawArraysInstanced(gl.TRIANGLES, 0, 6, SAMPLE_COUNT)
+  gl.disable(gl.BLEND)
 
   await exportFromContext(context, requestId)
 
@@ -430,6 +445,10 @@ function uploadFormula(context: RendererContext, info: FormulaInfo) {
   const { gl, uniforms } = context
   gl.useProgram(context.program)
   const { usedTransFlag, usedRegFlag } = optimize(info)
+
+  if (uniforms.uSampleOffsets) {
+    gl.uniform2fv(uniforms.uSampleOffsets, SAMPLE_OFFSETS)
+  }
 
   const transformParams = context.transformParamBuffer
   let transformCount = 0
@@ -541,113 +560,102 @@ function createProgram(gl: WebGL2RenderingContext): WebGLProgram {
   const vertexSource = `#version 300 es
     in vec2 aPosition;
     out vec2 vUV;
+    flat out int vSampleIndex;
     void main() {
+      vSampleIndex = gl_InstanceID;
       vUV = vec2(aPosition.x + 1.0, -aPosition.y + 1.0) * 0.5;
       gl_Position = vec4(aPosition, 0.0, 1.0);
     }`
 
   const fragmentSource = `#version 300 es
-      precision highp float;
-      precision highp int;
-      in vec2 vUV;
-      uniform ivec2 uResolution;
-      uniform ivec4 uTransformParams[36];
-      uniform int uActiveRegisterIndex[6];
-      uniform int uActiveTransformCount;
-      uniform int uActiveRegisterCount;
-      uniform vec3 uRegisterSeed[6];
-      out vec4 outColor;
+    precision highp float;
+    precision highp int;
+    in vec2 vUV;
+    flat in int vSampleIndex;
+    uniform ivec2 uResolution;
+    uniform ivec4 uTransformParams[${MAX_TRANSFORMS}];
+    uniform int uActiveRegisterIndex[${NUM_REGISTERS}];
+    uniform int uActiveTransformCount;
+    uniform int uActiveRegisterCount;
+    uniform vec3 uRegisterSeed[${NUM_REGISTERS}];
+    uniform vec2 uSampleOffsets[${SAMPLE_COUNT}];
+    out vec4 outColor;
 
-      #define OVERSAMPLING 2
-      const int MAX_TRANSFORMS = 36;
-      const int NUM_REGISTERS = 6;
+    const int NUM_REGISTERS = ${NUM_REGISTERS};
+    const float SAMPLE_INV = ${1 / SAMPLE_COUNT};
 
-      void main() {
-        vec2 pixelCoord = vUV * vec2(uResolution);
-        vec2 baseCoord = floor(pixelCoord);
-        vec2 invResolution = vec2(1.0) / vec2(uResolution);
-        vec2 sampleScale = invResolution / float(OVERSAMPLING);
-        vec2 baseSample = baseCoord * float(OVERSAMPLING);
-        vec3 accum = vec3(0.0);
+    void main() {
+      vec2 pixelCoord = vUV * vec2(uResolution);
+      vec2 baseCoord = floor(pixelCoord);
+      vec2 invResolution = vec2(1.0) / vec2(uResolution);
+      vec2 subPixelPos = (baseCoord + uSampleOffsets[vSampleIndex]) * invResolution;
 
-        for (int oy = 0; oy < OVERSAMPLING; oy++) {
-          for (int ox = 0; ox < OVERSAMPLING; ox++) {
-            vec2 jitter = vec2(float(ox), float(oy));
-            vec2 subPixelPos = (baseSample + jitter) * sampleScale;
+      vec3 r[NUM_REGISTERS];
+      for (int i = 0; i < NUM_REGISTERS; i++) {
+        r[i] = vec3(0.0);
+      }
 
-            vec3 r[NUM_REGISTERS];
-            for (int i = 0; i < NUM_REGISTERS; i++) {
-              r[i] = vec3(0.0);
-            }
+      for (int idx = 0; idx < uActiveRegisterCount; idx++) {
+        int regIndex = uActiveRegisterIndex[idx];
+        vec3 seed = vec3(subPixelPos, float(regIndex) / float(NUM_REGISTERS));
+        r[regIndex] = seed + uRegisterSeed[regIndex];
+      }
 
-            for (int idx = 0; idx < uActiveRegisterCount; idx++) {
-              int regIndex = uActiveRegisterIndex[idx];
-              vec3 seed = vec3(subPixelPos, float(regIndex) / float(NUM_REGISTERS));
-              r[regIndex] = seed + uRegisterSeed[regIndex];
-            }
-
-            for (int idx = 0; idx < uActiveTransformCount; idx++) {
-              ivec4 params = uTransformParams[idx];
-              int t = params.x;
-              int sr = params.y;
-              int cr = params.z;
-              int dr = params.w;
-              vec3 src = r[sr];
-              switch (t) {
-                case 0: {
-                  vec3 ctrl = r[cr];
-                  float scalarProd = dot(src, ctrl);
-                  r[dr] = src * scalarProd;
-                  break;
-                }
-                case 1: {
-                  vec3 ctrl = r[cr];
-                  vec3 sum = src + ctrl;
-                  r[dr] = sum - step(vec3(1.0), sum);
-                  break;
-                }
-                case 2: {
-                  vec3 ctrl = r[cr];
-                  vec3 diff = src - ctrl;
-                  r[dr] = diff + step(diff, vec3(0.0));
-                  break;
-                }
-                case 3: {
-                  r[dr] = vec3(src.y, src.z, src.x);
-                  break;
-                }
-                case 4: {
-                  r[dr] = vec3(src.z, src.x, src.y);
-                  break;
-                }
-                case 5: {
-                  vec3 ctrl = r[cr];
-                  r[dr] = src * ctrl;
-                  break;
-                }
-                case 6: {
-                  vec3 ctrl = r[cr];
-                  r[dr] = vec3(0.5) + 0.5 * sin(20.0 * src * ctrl);
-                  break;
-                }
-                case 7: {
-                  vec3 ctrl = r[cr];
-                  float sum = ctrl.x + ctrl.y + ctrl.z;
-                  r[dr] = (sum > 0.5) ? src : ctrl;
-                  break;
-                }
-                default: {
-                  r[dr] = vec3(1.0) - src;
-                  break;
-                }
-              }
-            }
-            accum += r[0];
+      for (int idx = 0; idx < uActiveTransformCount; idx++) {
+        ivec4 params = uTransformParams[idx];
+        int t = params.x;
+        int sr = params.y;
+        int cr = params.z;
+        int dr = params.w;
+        vec3 src = r[sr];
+        vec3 ctrl = r[cr];
+        switch (t) {
+          case 0: {
+            float scalarProd = dot(src, ctrl);
+            r[dr] = src * scalarProd;
+            break;
+          }
+          case 1: {
+            vec3 sum = src + ctrl;
+            r[dr] = sum - step(vec3(1.0), sum);
+            break;
+          }
+          case 2: {
+            vec3 diff = src - ctrl;
+            r[dr] = diff + step(diff, vec3(0.0));
+            break;
+          }
+          case 3: {
+            r[dr] = vec3(src.y, src.z, src.x);
+            break;
+          }
+          case 4: {
+            r[dr] = vec3(src.z, src.x, src.y);
+            break;
+          }
+          case 5: {
+            r[dr] = src * ctrl;
+            break;
+          }
+          case 6: {
+            r[dr] = vec3(0.5) + 0.5 * sin(20.0 * src * ctrl);
+            break;
+          }
+          case 7: {
+            float sum = ctrl.x + ctrl.y + ctrl.z;
+            r[dr] = (sum > 0.5) ? src : ctrl;
+            break;
+          }
+          default: {
+            r[dr] = vec3(1.0) - src;
+            break;
           }
         }
-        vec3 color = accum / float(OVERSAMPLING * OVERSAMPLING);
-        outColor = vec4(color, 1.0);
-      }`
+      }
+
+      vec3 color = r[0] * SAMPLE_INV;
+      outColor = vec4(color, SAMPLE_INV);
+    }`
 
   const vertexShader = compileShader(gl, gl.VERTEX_SHADER, vertexSource)
   const fragmentShader = compileShader(gl, gl.FRAGMENT_SHADER, fragmentSource)
@@ -739,6 +747,7 @@ function initUniforms(
     uActiveRegisterCount: null,
     uTransformParams: null,
     uActiveRegisterIndex: null,
+    uSampleOffsets: null,
     uRegisterSeed: null,
   }
 
@@ -759,6 +768,15 @@ function initUniforms(
   })
 
   vec3Uniforms.forEach((name) => {
+    uniforms[name] =
+      gl.getUniformLocation(program, `${name}[0]`) ||
+      gl.getUniformLocation(program, name)
+    if (uniforms[name] === null) {
+      console.error(`Failed to get uniform location for ${name}`)
+    }
+  })
+
+  vec2Uniforms.forEach((name) => {
     uniforms[name] =
       gl.getUniformLocation(program, `${name}[0]`) ||
       gl.getUniformLocation(program, name)
