@@ -4,15 +4,10 @@ import { optimize, type FormulaInfo } from './qbist.ts'
 
 const ctx = self as DedicatedWorkerGlobalScope
 
+const MAX_TRANSFORMS = 36
 const NUM_REGISTERS = 6
 
-type UniformArrayName =
-  | 'uTransformSequence'
-  | 'uSource'
-  | 'uControl'
-  | 'uDest'
-  | 'uActiveTransformIndex'
-  | 'uActiveRegisterIndex'
+type UniformArrayName = 'uActiveTransformIndex' | 'uActiveRegisterIndex'
 
 type UniformScalarName =
   | 'uResolution'
@@ -20,11 +15,13 @@ type UniformScalarName =
   | 'uActiveRegisterCount'
 
 type UniformVec3ArrayName = 'uRegisterSeed'
+type UniformVec4ArrayName = 'uTransformParams'
 
 type RendererUniformName =
   | UniformArrayName
   | UniformScalarName
   | UniformVec3ArrayName
+  | UniformVec4ArrayName
 
 type RendererUniforms = Record<RendererUniformName, WebGLUniformLocation | null>
 
@@ -51,6 +48,7 @@ interface RendererContext {
   activeRegisterCount: number
   activeTransformIndex: Int32Array
   activeRegisterIndex: Int32Array
+  transformParamBuffer: Int32Array
   pendingFrame: number | null
   fpsLastTime: number
   fpsFrameCount: number
@@ -136,10 +134,6 @@ export type ErrorMessage = {
 }
 
 const arrayUniforms: UniformArrayName[] = [
-  'uTransformSequence',
-  'uSource',
-  'uControl',
-  'uDest',
   'uActiveTransformIndex',
   'uActiveRegisterIndex',
 ]
@@ -151,6 +145,7 @@ const scalarUniforms: UniformScalarName[] = [
 ]
 
 const vec3Uniforms: UniformVec3ArrayName[] = ['uRegisterSeed']
+const vec4Uniforms: UniformVec4ArrayName[] = ['uTransformParams']
 
 type FrameHandle = number
 type FrameScheduler = (callback: (time: number) => void) => FrameHandle
@@ -208,8 +203,9 @@ function ensureSingletonContext(canvas?: OffscreenCanvas): RendererContext {
     registerSeedBuffer: new Float32Array(NUM_REGISTERS * 3),
     activeTransformCount: 0,
     activeRegisterCount: 0,
-    activeTransformIndex: new Int32Array(36),
+    activeTransformIndex: new Int32Array(MAX_TRANSFORMS),
     activeRegisterIndex: new Int32Array(NUM_REGISTERS),
+    transformParamBuffer: new Int32Array(MAX_TRANSFORMS * 4),
     pendingFrame: null,
     fpsLastTime: performance.now(),
     fpsFrameCount: 0,
@@ -440,20 +436,17 @@ function uploadFormula(context: RendererContext, info: FormulaInfo) {
   gl.useProgram(context.program)
   const { usedTransFlag, usedRegFlag } = optimize(info)
 
-  if (uniforms.uTransformSequence) {
-    gl.uniform1iv(
-      uniforms.uTransformSequence,
-      new Int32Array(info.transformSequence),
-    )
+  const transformParams = context.transformParamBuffer
+  let transformOffset = 0
+  for (let i = 0; i < MAX_TRANSFORMS; i++) {
+    transformParams[transformOffset++] = info.transformSequence[i]
+    transformParams[transformOffset++] = info.source[i]
+    transformParams[transformOffset++] = info.control[i]
+    transformParams[transformOffset++] = info.dest[i]
   }
-  if (uniforms.uSource) {
-    gl.uniform1iv(uniforms.uSource, new Int32Array(info.source))
-  }
-  if (uniforms.uControl) {
-    gl.uniform1iv(uniforms.uControl, new Int32Array(info.control))
-  }
-  if (uniforms.uDest) {
-    gl.uniform1iv(uniforms.uDest, new Int32Array(info.dest))
+
+  if (uniforms.uTransformParams) {
+    gl.uniform4iv(uniforms.uTransformParams, transformParams)
   }
 
   const transformIndices = context.activeTransformIndex
@@ -571,10 +564,7 @@ function createProgram(gl: WebGL2RenderingContext): WebGLProgram {
       precision highp int;
       in vec2 vUV;
       uniform ivec2 uResolution;
-      uniform int uTransformSequence[36];
-      uniform int uSource[36];
-      uniform int uControl[36];
-      uniform int uDest[36];
+      uniform ivec4 uTransformParams[36];
       uniform int uActiveTransformIndex[36];
       uniform int uActiveRegisterIndex[6];
       uniform int uActiveTransformCount;
@@ -612,10 +602,11 @@ function createProgram(gl: WebGL2RenderingContext): WebGLProgram {
 
             for (int idx = 0; idx < uActiveTransformCount; idx++) {
               int i = uActiveTransformIndex[idx];
-              int t = uTransformSequence[i];
-              int sr = uSource[i];
-              int cr = uControl[i];
-              int dr = uDest[i];
+              ivec4 params = uTransformParams[i];
+              int t = params.x;
+              int sr = params.y;
+              int cr = params.z;
+              int dr = params.w;
               vec3 src = r[sr];
               vec3 ctrl = r[cr];
               if (t == 0) {
@@ -737,10 +728,7 @@ function initUniforms(
     uResolution: null,
     uActiveTransformCount: null,
     uActiveRegisterCount: null,
-    uTransformSequence: null,
-    uSource: null,
-    uControl: null,
-    uDest: null,
+    uTransformParams: null,
     uActiveTransformIndex: null,
     uActiveRegisterIndex: null,
     uRegisterSeed: null,
@@ -763,6 +751,15 @@ function initUniforms(
   })
 
   vec3Uniforms.forEach((name) => {
+    uniforms[name] =
+      gl.getUniformLocation(program, `${name}[0]`) ||
+      gl.getUniformLocation(program, name)
+    if (uniforms[name] === null) {
+      console.error(`Failed to get uniform location for ${name}`)
+    }
+  })
+
+  vec4Uniforms.forEach((name) => {
     uniforms[name] =
       gl.getUniformLocation(program, `${name}[0]`) ||
       gl.getUniformLocation(program, name)
