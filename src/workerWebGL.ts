@@ -14,7 +14,10 @@ type UniformArrayName =
   | 'uUsedTransFlag'
   | 'uUsedRegFlag'
 
-type UniformScalarName = 'uResolution' | 'uTime'
+type UniformScalarName =
+  | 'uResolution'
+  | 'uActiveTransformCount'
+  | 'uActiveRegisterCount'
 
 type UniformVec3ArrayName = 'uRegisterSeed'
 
@@ -44,6 +47,8 @@ interface RendererContext {
   formula: FormulaInfo | null
   usedRegFlag: boolean[]
   registerSeedBuffer: Float32Array
+  activeTransformLimit: number
+  activeRegisterLimit: number
   pendingFrame: number | null
   fpsLastTime: number
   fpsFrameCount: number
@@ -137,7 +142,11 @@ const arrayUniforms: UniformArrayName[] = [
   'uUsedRegFlag',
 ]
 
-const scalarUniforms: UniformScalarName[] = ['uResolution', 'uTime']
+const scalarUniforms: UniformScalarName[] = [
+  'uResolution',
+  'uActiveTransformCount',
+  'uActiveRegisterCount',
+]
 
 const vec3Uniforms: UniformVec3ArrayName[] = ['uRegisterSeed']
 
@@ -195,6 +204,8 @@ function ensureSingletonContext(canvas?: OffscreenCanvas): RendererContext {
     formula: null,
     usedRegFlag: new Array(NUM_REGISTERS).fill(false),
     registerSeedBuffer: new Float32Array(NUM_REGISTERS * 3),
+    activeTransformLimit: 0,
+    activeRegisterLimit: 0,
     pendingFrame: null,
     fpsLastTime: performance.now(),
     fpsFrameCount: 0,
@@ -361,9 +372,12 @@ async function renderFrame(
 
   updateRegisterSeeds(context, timestamp)
 
-  if (uniforms.uTime) {
-    const timeValue = renderMode.type === 'animation' ? timestamp * 0.001 : 0
-    gl.uniform1f(uniforms.uTime, timeValue)
+  const { activeTransformLimit, activeRegisterLimit } = context
+  if (uniforms.uActiveTransformCount) {
+    gl.uniform1i(uniforms.uActiveTransformCount, activeTransformLimit)
+  }
+  if (uniforms.uActiveRegisterCount) {
+    gl.uniform1i(uniforms.uActiveRegisterCount, activeRegisterLimit)
   }
 
   gl.viewport(0, 0, context.canvas.width, context.canvas.height)
@@ -421,6 +435,8 @@ function uploadFormula(context: RendererContext, info: FormulaInfo) {
   const { gl, uniforms } = context
   gl.useProgram(context.program)
   const { usedTransFlag, usedRegFlag } = optimize(info)
+  let maxTransformIndex = -1
+  let maxRegisterIndex = -1
 
   if (uniforms.uTransformSequence) {
     gl.uniform1iv(
@@ -442,16 +458,40 @@ function uploadFormula(context: RendererContext, info: FormulaInfo) {
       uniforms.uUsedTransFlag,
       new Int32Array(usedTransFlag.map((flag) => (flag ? 1 : 0))),
     )
+    for (let i = usedTransFlag.length - 1; i >= 0; i--) {
+      if (usedTransFlag[i]) {
+        maxTransformIndex = i
+        break
+      }
+    }
   }
   if (uniforms.uUsedRegFlag) {
     gl.uniform1iv(
       uniforms.uUsedRegFlag,
       new Int32Array(usedRegFlag.map((flag) => (flag ? 1 : 0))),
     )
+    for (let i = usedRegFlag.length - 1; i >= 0; i--) {
+      if (usedRegFlag[i]) {
+        maxRegisterIndex = i
+        break
+      }
+    }
   }
+
+  const transformLimit = maxTransformIndex + 1
+  const registerLimit = maxRegisterIndex >= 0 ? maxRegisterIndex + 1 : 1
 
   context.formula = info
   context.usedRegFlag = usedRegFlag.slice()
+  context.activeTransformLimit = transformLimit
+  context.activeRegisterLimit = registerLimit
+
+  if (uniforms.uActiveTransformCount) {
+    gl.uniform1i(uniforms.uActiveTransformCount, transformLimit)
+  }
+  if (uniforms.uActiveRegisterCount) {
+    gl.uniform1i(uniforms.uActiveRegisterCount, registerLimit)
+  }
 }
 
 async function exportFromContext(context: RendererContext, requestId: number) {
@@ -526,13 +566,14 @@ function createProgram(gl: WebGL2RenderingContext): WebGLProgram {
       precision highp int;
       in vec2 vUV;
       uniform ivec2 uResolution;
-      uniform float uTime;
       uniform int uTransformSequence[36];
       uniform int uSource[36];
       uniform int uControl[36];
       uniform int uDest[36];
       uniform int uUsedTransFlag[36];
       uniform int uUsedRegFlag[6];
+      uniform int uActiveTransformCount;
+      uniform int uActiveRegisterCount;
       uniform vec3 uRegisterSeed[6];
       out vec4 outColor;
 
@@ -553,8 +594,9 @@ function createProgram(gl: WebGL2RenderingContext): WebGLProgram {
             vec2 jitter = vec2(float(ox), float(oy));
             vec2 subPixelPos = (baseCoord * float(OVERSAMPLING) + jitter) * vec2(invResolutionX, invResolutionY) / float(OVERSAMPLING);
 
-            vec3 r[NUM_REGISTERS];
-            for (int i = 0; i < NUM_REGISTERS; i++) {
+             vec3 r[NUM_REGISTERS];
+             for (int i = 0; i < NUM_REGISTERS; i++) {
+               if (i >= uActiveRegisterCount) { break; }
                if (uUsedRegFlag[i] == 1) {
                   vec3 seed = vec3(subPixelPos, float(i) / float(NUM_REGISTERS));
                   r[i] = seed + uRegisterSeed[i];
@@ -563,7 +605,8 @@ function createProgram(gl: WebGL2RenderingContext): WebGLProgram {
                }
             }
 
-            for (int i = 0; i < MAX_TRANSFORMS; i++) {
+             for (int i = 0; i < MAX_TRANSFORMS; i++) {
+               if (i >= uActiveTransformCount) { break; }
                if (uUsedTransFlag[i] != 1) continue;
               int t = uTransformSequence[i];
               int sr = uSource[i];
@@ -688,7 +731,8 @@ function initUniforms(
 ): RendererUniforms {
   const uniforms: RendererUniforms = {
     uResolution: null,
-    uTime: null,
+    uActiveTransformCount: null,
+    uActiveRegisterCount: null,
     uTransformSequence: null,
     uSource: null,
     uControl: null,
