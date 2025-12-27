@@ -1,9 +1,10 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>QbistJS</title>
+    <link rel="stylesheet" href="reset.css" />
+    <link rel="stylesheet" href="index.css" />
   </head>
   <body>
     <nav>
@@ -28,24 +29,21 @@
               type="number"
               id="outputWidth"
               name="outputWidth"
-              value="1920"
-            />
+              value="1920" />
             <br />
             <label for="outputHeight">Height:</label>
             <input
               type="number"
               id="outputHeight"
               name="outputHeight"
-              value="1080"
-            />
+              value="1080" />
             <br />
             <label for="oversampling">Oversampling:</label>
             <input
               type="number"
               id="oversampling"
               name="oversampling"
-              value="2"
-            />
+              value="2" />
             <br />
             <menu>
               <button id="downloadButton" type="submit">Download PNG</button>
@@ -55,8 +53,7 @@
               <button
                 type="button"
                 id="closeSettings"
-                onclick="document.getElementById('settingsDialog').close()"
-              >
+                onclick="document.getElementById('settingsDialog').close()">
                 Cancel
               </button>
             </menu>
@@ -85,6 +82,11 @@
         <p id="loadingText">Rendering Image!</p>
       </div>
     </main>
-    <script type="module" src="./src/main.ts"></script>
+
+    <script src="./qbistListeners.js" type="module"></script>
+    <script src="./qbist.js" type="module"></script>
+    <script src="./index.js" type="module"></script>
+    <script src="./QbistExporter.js" type="module"></script>
+    <script src="./QbistRenderer.js" type="module"></script>
   </body>
 </html>
