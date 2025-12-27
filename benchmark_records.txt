@@ -30,3 +30,13 @@ Resolution 	Average (ms) 	Min (ms) 	Max (ms)
 1920 × 1080	67.81	58.00	82.00
 3840 × 2160	199.79	180.00	247.00
 
+Not much improvement after removing 3 uniforms
+
+
+After fourth round of improvements: use switch based dispatch, update supersampling math, prepack buffers for transforms
+Resolution 	Average (ms) 	Min (ms) 	Max (ms)
+256 × 256	15.63	11.00	20.00
+512 × 512	16.28	10.00	73.00
+1024 × 1024	40.49	30.00	53.00
+1920 × 1080	60.40	47.00	74.00
+3840 × 2160	182.25	170.00	212.00

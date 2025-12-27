@@ -579,15 +579,15 @@ function createProgram(gl: WebGL2RenderingContext): WebGLProgram {
       void main() {
         vec2 pixelCoord = vUV * vec2(uResolution);
         vec2 baseCoord = floor(pixelCoord);
-        vec2 resolution = vec2(uResolution);
-        float invResolutionX = 1.0 / resolution.x;
-        float invResolutionY = 1.0 / resolution.y;
+        vec2 invResolution = vec2(1.0) / vec2(uResolution);
+        vec2 sampleScale = invResolution / float(OVERSAMPLING);
+        vec2 baseSample = baseCoord * float(OVERSAMPLING);
         vec3 accum = vec3(0.0);
 
         for (int oy = 0; oy < OVERSAMPLING; oy++) {
           for (int ox = 0; ox < OVERSAMPLING; ox++) {
             vec2 jitter = vec2(float(ox), float(oy));
-            vec2 subPixelPos = (baseCoord * float(OVERSAMPLING) + jitter) * vec2(invResolutionX, invResolutionY) / float(OVERSAMPLING);
+            vec2 subPixelPos = (baseSample + jitter) * sampleScale;
 
             vec3 r[NUM_REGISTERS];
             for (int i = 0; i < NUM_REGISTERS; i++) {
@@ -608,29 +608,53 @@ function createProgram(gl: WebGL2RenderingContext): WebGLProgram {
               int cr = params.z;
               int dr = params.w;
               vec3 src = r[sr];
-              vec3 ctrl = r[cr];
-              if (t == 0) {
-                float scalarProd = dot(src, ctrl);
-                r[dr] = src * scalarProd;
-              } else if (t == 1) {
-                vec3 sum = src + ctrl;
-                r[dr] = sum - step(vec3(1.0), sum);
-              } else if (t == 2) {
-                vec3 diff = src - ctrl;
-                r[dr] = diff + step(diff, vec3(0.0));
-              } else if (t == 3) {
-                r[dr] = vec3(src.y, src.z, src.x);
-              } else if (t == 4) {
-                r[dr] = vec3(src.z, src.x, src.y);
-              } else if (t == 5) {
-                r[dr] = src * ctrl;
-              } else if (t == 6) {
-                r[dr] = vec3(0.5) + 0.5 * sin(20.0 * src * ctrl);
-              } else if (t == 7) {
-                float sum = ctrl.x + ctrl.y + ctrl.z;
-                r[dr] = (sum > 0.5) ? src : ctrl;
-              } else if (t == 8) {
-                r[dr] = vec3(1.0) - src;
+              switch (t) {
+                case 0: {
+                  vec3 ctrl = r[cr];
+                  float scalarProd = dot(src, ctrl);
+                  r[dr] = src * scalarProd;
+                  break;
+                }
+                case 1: {
+                  vec3 ctrl = r[cr];
+                  vec3 sum = src + ctrl;
+                  r[dr] = sum - step(vec3(1.0), sum);
+                  break;
+                }
+                case 2: {
+                  vec3 ctrl = r[cr];
+                  vec3 diff = src - ctrl;
+                  r[dr] = diff + step(diff, vec3(0.0));
+                  break;
+                }
+                case 3: {
+                  r[dr] = vec3(src.y, src.z, src.x);
+                  break;
+                }
+                case 4: {
+                  r[dr] = vec3(src.z, src.x, src.y);
+                  break;
+                }
+                case 5: {
+                  vec3 ctrl = r[cr];
+                  r[dr] = src * ctrl;
+                  break;
+                }
+                case 6: {
+                  vec3 ctrl = r[cr];
+                  r[dr] = vec3(0.5) + 0.5 * sin(20.0 * src * ctrl);
+                  break;
+                }
+                case 7: {
+                  vec3 ctrl = r[cr];
+                  float sum = ctrl.x + ctrl.y + ctrl.z;
+                  r[dr] = (sum > 0.5) ? src : ctrl;
+                  break;
+                }
+                default: {
+                  r[dr] = vec3(1.0) - src;
+                  break;
+                }
               }
             }
             accum += r[0];
