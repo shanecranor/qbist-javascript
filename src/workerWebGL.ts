@@ -407,7 +407,7 @@ function updateRegisterSeeds(context: RendererContext, timestamp: number) {
   }
 
   const timeSeconds = timestamp * 0.001
-  const oscillation = timeSeconds * 0.2
+  const oscillation = context.renderMode.keepAlive ? timeSeconds * 0.2 : 0
 
   for (let i = 0; i < NUM_REGISTERS; i++) {
     const baseIndex = i * 3
