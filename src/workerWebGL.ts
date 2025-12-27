@@ -11,8 +11,8 @@ type UniformArrayName =
   | 'uSource'
   | 'uControl'
   | 'uDest'
-  | 'uUsedTransFlag'
-  | 'uUsedRegFlag'
+  | 'uActiveTransformIndex'
+  | 'uActiveRegisterIndex'
 
 type UniformScalarName =
   | 'uResolution'
@@ -47,8 +47,10 @@ interface RendererContext {
   formula: FormulaInfo | null
   usedRegFlag: boolean[]
   registerSeedBuffer: Float32Array
-  activeTransformLimit: number
-  activeRegisterLimit: number
+  activeTransformCount: number
+  activeRegisterCount: number
+  activeTransformIndex: Int32Array
+  activeRegisterIndex: Int32Array
   pendingFrame: number | null
   fpsLastTime: number
   fpsFrameCount: number
@@ -138,8 +140,8 @@ const arrayUniforms: UniformArrayName[] = [
   'uSource',
   'uControl',
   'uDest',
-  'uUsedTransFlag',
-  'uUsedRegFlag',
+  'uActiveTransformIndex',
+  'uActiveRegisterIndex',
 ]
 
 const scalarUniforms: UniformScalarName[] = [
@@ -204,8 +206,10 @@ function ensureSingletonContext(canvas?: OffscreenCanvas): RendererContext {
     formula: null,
     usedRegFlag: new Array(NUM_REGISTERS).fill(false),
     registerSeedBuffer: new Float32Array(NUM_REGISTERS * 3),
-    activeTransformLimit: 0,
-    activeRegisterLimit: 0,
+    activeTransformCount: 0,
+    activeRegisterCount: 0,
+    activeTransformIndex: new Int32Array(36),
+    activeRegisterIndex: new Int32Array(NUM_REGISTERS),
     pendingFrame: null,
     fpsLastTime: performance.now(),
     fpsFrameCount: 0,
@@ -372,12 +376,12 @@ async function renderFrame(
 
   updateRegisterSeeds(context, timestamp)
 
-  const { activeTransformLimit, activeRegisterLimit } = context
+  const { activeTransformCount, activeRegisterCount } = context
   if (uniforms.uActiveTransformCount) {
-    gl.uniform1i(uniforms.uActiveTransformCount, activeTransformLimit)
+    gl.uniform1i(uniforms.uActiveTransformCount, activeTransformCount)
   }
   if (uniforms.uActiveRegisterCount) {
-    gl.uniform1i(uniforms.uActiveRegisterCount, activeRegisterLimit)
+    gl.uniform1i(uniforms.uActiveRegisterCount, activeRegisterCount)
   }
 
   gl.viewport(0, 0, context.canvas.width, context.canvas.height)
@@ -435,8 +439,6 @@ function uploadFormula(context: RendererContext, info: FormulaInfo) {
   const { gl, uniforms } = context
   gl.useProgram(context.program)
   const { usedTransFlag, usedRegFlag } = optimize(info)
-  let maxTransformIndex = -1
-  let maxRegisterIndex = -1
 
   if (uniforms.uTransformSequence) {
     gl.uniform1iv(
@@ -453,44 +455,47 @@ function uploadFormula(context: RendererContext, info: FormulaInfo) {
   if (uniforms.uDest) {
     gl.uniform1iv(uniforms.uDest, new Int32Array(info.dest))
   }
-  if (uniforms.uUsedTransFlag) {
-    gl.uniform1iv(
-      uniforms.uUsedTransFlag,
-      new Int32Array(usedTransFlag.map((flag) => (flag ? 1 : 0))),
-    )
-    for (let i = usedTransFlag.length - 1; i >= 0; i--) {
-      if (usedTransFlag[i]) {
-        maxTransformIndex = i
-        break
-      }
-    }
-  }
-  if (uniforms.uUsedRegFlag) {
-    gl.uniform1iv(
-      uniforms.uUsedRegFlag,
-      new Int32Array(usedRegFlag.map((flag) => (flag ? 1 : 0))),
-    )
-    for (let i = usedRegFlag.length - 1; i >= 0; i--) {
-      if (usedRegFlag[i]) {
-        maxRegisterIndex = i
-        break
-      }
+
+  const transformIndices = context.activeTransformIndex
+  let transformCount = 0
+  for (let i = 0; i < usedTransFlag.length; i++) {
+    if (usedTransFlag[i]) {
+      transformIndices[transformCount++] = i
     }
   }
 
-  const transformLimit = maxTransformIndex + 1
-  const registerLimit = maxRegisterIndex >= 0 ? maxRegisterIndex + 1 : 1
+  const registerIndices = context.activeRegisterIndex
+  let registerCount = 0
+  for (let i = 0; i < usedRegFlag.length; i++) {
+    if (usedRegFlag[i]) {
+      registerIndices[registerCount++] = i
+    }
+  }
 
   context.formula = info
   context.usedRegFlag = usedRegFlag.slice()
-  context.activeTransformLimit = transformLimit
-  context.activeRegisterLimit = registerLimit
+  context.activeTransformCount = transformCount
+  context.activeRegisterCount = registerCount
+
+  if (uniforms.uActiveTransformIndex && transformCount > 0) {
+    gl.uniform1iv(
+      uniforms.uActiveTransformIndex,
+      transformIndices.subarray(0, transformCount),
+    )
+  }
+
+  if (uniforms.uActiveRegisterIndex && registerCount > 0) {
+    gl.uniform1iv(
+      uniforms.uActiveRegisterIndex,
+      registerIndices.subarray(0, registerCount),
+    )
+  }
 
   if (uniforms.uActiveTransformCount) {
-    gl.uniform1i(uniforms.uActiveTransformCount, transformLimit)
+    gl.uniform1i(uniforms.uActiveTransformCount, transformCount)
   }
   if (uniforms.uActiveRegisterCount) {
-    gl.uniform1i(uniforms.uActiveRegisterCount, registerLimit)
+    gl.uniform1i(uniforms.uActiveRegisterCount, registerCount)
   }
 }
 
@@ -570,8 +575,8 @@ function createProgram(gl: WebGL2RenderingContext): WebGLProgram {
       uniform int uSource[36];
       uniform int uControl[36];
       uniform int uDest[36];
-      uniform int uUsedTransFlag[36];
-      uniform int uUsedRegFlag[6];
+      uniform int uActiveTransformIndex[36];
+      uniform int uActiveRegisterIndex[6];
       uniform int uActiveTransformCount;
       uniform int uActiveRegisterCount;
       uniform vec3 uRegisterSeed[6];
@@ -594,20 +599,19 @@ function createProgram(gl: WebGL2RenderingContext): WebGLProgram {
             vec2 jitter = vec2(float(ox), float(oy));
             vec2 subPixelPos = (baseCoord * float(OVERSAMPLING) + jitter) * vec2(invResolutionX, invResolutionY) / float(OVERSAMPLING);
 
-             vec3 r[NUM_REGISTERS];
-             for (int i = 0; i < NUM_REGISTERS; i++) {
-               if (i >= uActiveRegisterCount) { break; }
-               if (uUsedRegFlag[i] == 1) {
-                  vec3 seed = vec3(subPixelPos, float(i) / float(NUM_REGISTERS));
-                  r[i] = seed + uRegisterSeed[i];
-               } else {
-                 r[i] = vec3(0.0);
-               }
+            vec3 r[NUM_REGISTERS];
+            for (int i = 0; i < NUM_REGISTERS; i++) {
+              r[i] = vec3(0.0);
             }
 
-             for (int i = 0; i < MAX_TRANSFORMS; i++) {
-               if (i >= uActiveTransformCount) { break; }
-               if (uUsedTransFlag[i] != 1) continue;
+            for (int idx = 0; idx < uActiveRegisterCount; idx++) {
+              int regIndex = uActiveRegisterIndex[idx];
+              vec3 seed = vec3(subPixelPos, float(regIndex) / float(NUM_REGISTERS));
+              r[regIndex] = seed + uRegisterSeed[regIndex];
+            }
+
+            for (int idx = 0; idx < uActiveTransformCount; idx++) {
+              int i = uActiveTransformIndex[idx];
               int t = uTransformSequence[i];
               int sr = uSource[i];
               int cr = uControl[i];
@@ -737,8 +741,8 @@ function initUniforms(
     uSource: null,
     uControl: null,
     uDest: null,
-    uUsedTransFlag: null,
-    uUsedRegFlag: null,
+    uActiveTransformIndex: null,
+    uActiveRegisterIndex: null,
     uRegisterSeed: null,
   }
 
